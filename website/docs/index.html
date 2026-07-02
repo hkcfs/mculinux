@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCUlinux Documentation</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+        header { background: #1a1a2e; color: white; padding: 1rem 0; }
+        nav { display: flex; justify-content: space-between; align-items: center; }
+        nav a { color: white; text-decoration: none; margin-left: 20px; }
+        nav a:hover { color: #00d9ff; }
+        .logo { font-size: 1.5rem; font-weight: bold; }
+        main { padding: 40px 0; }
+        .sidebar { float: left; width: 250px; padding-right: 30px; }
+        .content { margin-left: 280px; }
+        .sidebar h3 { margin-bottom: 15px; color: #1a1a2e; }
+        .sidebar ul { list-style: none; }
+        .sidebar li { margin-bottom: 10px; }
+        .sidebar a { color: #666; text-decoration: none; }
+        .sidebar a:hover { color: #00d9ff; }
+        h1 { color: #1a1a2e; margin-bottom: 20px; }
+        h2 { color: #1a1a2e; margin: 30px 0 15px; }
+        h3 { color: #1a1a2e; margin: 20px 0 10px; }
+        p { margin-bottom: 15px; }
+        pre { background: #f5f5f5; padding: 15px; border-radius: 5px; overflow-x: auto; margin-bottom: 15px; }
+        code { background: #f5f5f5; padding: 2px 5px; border-radius: 3px; font-size: 0.9em; }
+        .note { background: #e7f3ff; border-left: 4px solid #00d9ff; padding: 15px; margin-bottom: 15px; }
+        .warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin-bottom: 15px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background: #f5f5f5; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <nav>
+                <div class="logo">MCUlinux</div>
+                <div>
+                    <a href="../">Home</a>
+                    <a href="../flasher/">Flasher</a>
+                    <a href="https://github.com/mculinux/mculinux">GitHub</a>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <div class="container">
+        <nav class="sidebar">
+            <h3>Documentation</h3>
+            <ul>
+                <li><a href="#getting-started">Getting Started</a></li>
+                <li><a href="#installation">Installation</a></li>
+                <li><a href="#configuration">Configuration</a></li>
+                <li><a href="#packages">Packages</a></li>
+                <li><a href="#networking">Networking</a></li>
+                <li><a href="#serial">Serial Console</a></li>
+                <li><a href="#ota">OTA Updates</a></li>
+                <li><a href="#troubleshooting">Troubleshooting</a></li>
+            </ul>
+        </nav>
+
+        <main class="content">
+            <h1>MCUlinux Documentation</h1>
+
+            <section id="getting-started">
+                <h2>Getting Started</h2>
+                <p>MCUlinux is a lightweight Alpine Linux distribution for ESP32-S3 microcontrollers. It provides a familiar Linux environment with package management capabilities.</p>
+
+                <div class="note">
+                    <strong>Note:</strong> MCUlinux currently supports ESP32-S3 only. Support for other ESP32 variants is planned for future releases.
+                </div>
+
+                <h3>Supported Devices</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Device</th>
+                            <th>PSRAM</th>
+                            <th>Flash</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>r8n8</td>
+                            <td>8MB</td>
+                            <td>8MB</td>
+                            <td>Basic configuration</td>
+                        </tr>
+                        <tr>
+                            <td>r8n16</td>
+                            <td>8MB</td>
+                            <td>16MB</td>
+                            <td>Extended storage</td>
+                        </tr>
+                        <tr>
+                            <td>r16n16</td>
+                            <td>16MB</td>
+                            <td>16MB</td>
+                            <td>High memory configuration</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="installation">
+                <h2>Installation</h2>
+                <h3>Requirements</h3>
+                <ul>
+                    <li>ESP32-S3 development board</li>
+                    <li>USB cable for programming and serial console</li>
+                    <li>esptool.py or web flasher</li>
+                </ul>
+
+                <h3>Using Web Flasher</h3>
+                <ol>
+                    <li>Open <a href="../flasher/">MCUlinux Flasher</a></li>
+                    <li>Select your device type</li>
+                    <li>Download or select firmware file</li>
+                    <li>Connect your device</li>
+                    <li>Click Flash</li>
+                </ol>
+
+                <h3>Using esptool.py</h3>
+                <pre><code># Install esptool
+pip install esptool
+
+# Download latest release
+wget https://github.com/mculinux/mculinux/releases/latest/download/r8n8.zip
+unzip r8n8.zip
+
+# Flash firmware
+esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 115200 \
+    write_flash 0x0 \
+    bootloader.bin \
+    partitions.bin \
+    firmware.bin</code></pre>
+            </section>
+
+            <section id="configuration">
+                <h2>Configuration</h2>
+                <h3>Boot Configuration</h3>
+                <p>MCUlinux uses ESP-IDF's menuconfig system. To modify boot settings:</p>
+                <pre><code># Enter menuconfig
+idf.py menuconfig
+
+# Key settings:
+# - Bootloader → Boot menu timeout
+# - Partition Table → Custom partition table
+# - Compiler options → Optimization level</code></pre>
+
+                <h3>Network Configuration</h3>
+                <pre><code># Configure WiFi
+wpa_passphrase "SSID" "password" > /etc/wpa_supplicant.conf
+
+# Start network
+wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant.conf
+udhcpc -i wlan0</code></pre>
+            </section>
+
+            <section id="packages">
+                <h2>Packages</h2>
+                <p>MCUlinux uses Alpine Linux's package manager (apk) for software management.</p>
+
+                <h3>Available Packages</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Package</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>busybox</td>
+                            <td>Lightweight utilities</td>
+                        </tr>
+                        <tr>
+                            <td>htop</td>
+                            <td>Process viewer</td>
+                        </tr>
+                        <tr>
+                            <td>btop</td>
+                            <td>Resource monitor</td>
+                        </tr>
+                        <tr>
+                            <td>nano</td>
+                            <td>Text editor</td>
+                        </tr>
+                        <tr>
+                            <td>coreutils</td>
+                            <td>Basic UNIX utilities</td>
+                        </tr>
+                        <tr>
+                            <td>bash</td>
+                            <td>Shell</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3>Installing Packages</h3>
+                <pre><code># Update package index
+apk update
+
+# Install package
+apk add htop
+
+# Install multiple packages
+apk add htop btop nano</code></pre>
+            </section>
+
+            <section id="networking">
+                <h2>Networking</h2>
+                <h3>WiFi</h3>
+                <pre><code># Scan for networks
+iwlist wlan0 scan
+
+# Connect to network
+wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant.conf
+udhcpc -i wlan0
+
+# Test connection
+ping -c 3 google.com</code></pre>
+
+                <h3>SSH</h3>
+                <pre><code># Install OpenSSH
+apk add openssh
+
+# Generate host keys
+ssh-keygen -A
+
+# Start SSH server
+sshd
+
+# Connect from another machine
+ssh root@&lt;device-ip&gt;</code></pre>
+            </section>
+
+            <section id="serial">
+                <h2>Serial Console</h2>
+                <p>MCUlinux provides a serial console for direct communication.</p>
+
+                <h3>Connecting</h3>
+                <pre><code># Linux/macOS
+screen /dev/ttyUSB0 115200
+
+# Windows (PuTTY)
+# Serial line: COMx
+# Speed: 115200</code></pre>
+
+                <h3>Default Credentials</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Service</th>
+                            <th>Username</th>
+                            <th>Password</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Serial Console</td>
+                            <td>root</td>
+                            <td>(none)</td>
+                        </tr>
+                        <tr>
+                            <td>SSH</td>
+                            <td>root</td>
+                            <td>(none)</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="ota">
+                <h2>OTA Updates</h2>
+                <p>MCUlinux supports Over-The-Air updates via the partition table.</p>
+
+                <h3>OTA Process</h3>
+                <pre><code># Check current version
+cat /etc/mculinux/version
+
+# Download new firmware
+wget http://server/firmware.bin
+
+# Apply update
+mculinux-ota apply firmware.bin
+
+# Reboot
+reboot</code></pre>
+
+                <div class="warning">
+                    <strong>Warning:</strong> OTA updates may cause data loss. Backup important data before updating.
+                </div>
+            </section>
+
+            <section id="troubleshooting">
+                <h2>Troubleshooting</h2>
+                <h3>Common Issues</h3>
+
+                <h4>Device not booting</h4>
+                <ul>
+                    <li>Check USB connection</li>
+                    <li>Verify baud rate (115200)</li>
+                    <li>Try different USB port/cable</li>
+                </ul>
+
+                <h4>No serial output</h4>
+                <ul>
+                    <li>Ensure correct COM port</li>
+                    <li>Check baud rate settings</li>
+                    <li>Press RESET button</li>
+                </ul>
+
+                <h4>WiFi not connecting</h4>
+                <ul>
+                    <li>Verify SSID and password</li>
+                    <li>Check signal strength</li>
+                    <li>Ensure WiFi antenna is connected</li>
+                </ul>
+
+                <h3>Getting Help</h3>
+                <ul>
+                    <li><a href="https://github.com/mculinux/mculinux/issues">GitHub Issues</a></li>
+                    <li><a href="https://github.com/mculinux/mculinux/discussions">GitHub Discussions</a></li>
+                </ul>
+            </section>
+        </main>
+    </div>
+
+    <footer style="background: #1a1a2e; color: white; padding: 20px 0; text-align: center; margin-top: 40px;">
+        <div class="container">
+            <p>&copy; 2024 MCUlinux. Licensed under GPL-3.0.</p>
+        </div>
+    </footer>
+</body>
+</html>

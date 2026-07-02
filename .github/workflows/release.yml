@@ -1,0 +1,167 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version'
+        required: true
+        type: string
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker images
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.builder
+          push: false
+          tags: mculinux-builder:latest
+
+      - name: Build packages
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/mculinux-packages:/packages \
+            -v ${{ github.workspace }}/output:/output \
+            mculinux-builder:latest \
+            /scripts/build-packages.sh
+
+  build-all-images:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        device: [r8n8, r8n16, r16n16]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.idf
+          push: false
+          tags: mculinux-idf:latest
+
+      - name: Build firmware image
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/images:/images \
+            -v ${{ github.workspace }}/output:/output \
+            mculinux-idf:latest \
+            /scripts/build-image.sh ${{ matrix.device }}
+
+      - name: Create release package
+        run: |
+          cd output/${{ matrix.device }}
+          zip -r ${{ matrix.device }}.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.device }}
+          path: output/${{ matrix.device }}/${{ matrix.device }}.zip
+
+  test-images:
+    needs: build-all-images
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        device: [r8n8, r8n16, r16n16]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build QEMU image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.qemu
+          push: false
+          tags: mculinux-qemu:latest
+
+      - name: Download image artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: image-${{ matrix.device }}
+          path: output/${{ matrix.device }}/
+
+      - name: Run QEMU tests
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/output:/output \
+            mculinux-qemu:latest \
+            /scripts/run-tests.sh ${{ matrix.device }}
+
+  publish-release:
+    needs: test-images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: MCUlinux ${{ steps.version.outputs.version }}
+          body: |
+            ## MCUlinux ${{ steps.version.outputs.version }}
+            
+            ### Supported Devices
+            - **r8n8**: 8MB PSRAM + 8MB Flash
+            - **r8n16**: 8MB PSRAM + 16MB Flash
+            - **r16n16**: 16MB PSRAM + 16MB Flash
+            
+            ### Installation
+            1. Download the appropriate zip file for your device
+            2. Extract the files
+            3. Flash using esptool.py or the web flasher
+            
+            ### Documentation
+            Visit [mculinux.org](https://mculinux.org) for full documentation.
+          files: |
+            image-r8n8/r8n8.zip
+            image-r8n16/r8n16.zip
+            image-r16n16/r16n16.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

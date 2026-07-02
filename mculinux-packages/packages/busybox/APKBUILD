@@ -1,0 +1,41 @@
+# Contributor: MCUlinux <dev@mculinux.org>
+# Maintainer: MCUlinux <dev@mculinux.org>
+pkgname=busybox
+pkgver=1.36.1
+pkgrel=0
+pkgdesc="Size optimized replacements for common UNIX utilities"
+url="https://busybox.net"
+arch="xtensa"
+license="GPL-2.0-only"
+depends="musl"
+makedepends="linux-headers"
+subpackages="$pkgname-bin $pkgname-doc"
+source="https://busybox.net/downloads/busybox-$pkgver.tar.gz"
+
+build() {
+    cd "$srcdir/busybox-$pkgver"
+
+    # ESP32-S3 specific configuration
+    sed -i 's/# CONFIG_ELOADER is not set/CONFIG_ELOADER=y/' .config
+    sed -i 's/# CONFIG_FEATURE_USE_SENDFILE is not set/CONFIG_FEATURE_USE_SENDFILE=y/' .config
+
+    make ARCH=xtensa CROSS_COMPILE=xtensa-esp32s3-elf- defconfig
+    make ARCH=xtensa CROSS_COMPILE=xtensa-esp32s3-elf- -j$(nproc)
+}
+
+package() {
+    cd "$srcdir/busybox-$pkgver"
+    make ARCH=xtensa CROSS_COMPILE=xtensa-esp32s3-elf- \
+        DESTDIR="$pkgdir" \
+        install
+
+    # Remove unnecessary files
+    rm -rf "$pkgdir/usr/share/man"
+    rm -rf "$pkgdir/usr/share/doc"
+}
+
+bin() {
+    depends=""
+    mkdir -p "$subpkgdir/usr/bin"
+    mv "$pkgdir/usr/bin/busybox" "$subpkgdir/usr/bin/"
+}

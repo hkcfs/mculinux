@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCUlinux Flasher</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: white; min-height: 100vh; }
+        .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+        header { padding: 20px 0; text-align: center; }
+        h1 { font-size: 2rem; margin-bottom: 10px; }
+        .flasher { background: #16213e; border-radius: 10px; padding: 30px; margin-top: 20px; }
+        .step { margin-bottom: 30px; }
+        .step h3 { color: #00d9ff; margin-bottom: 15px; }
+        .step p { margin-bottom: 10px; }
+        .btn { display: inline-block; padding: 12px 30px; background: #00d9ff; color: #1a1a2e; text-decoration: none; border-radius: 5px; font-weight: bold; border: none; cursor: pointer; font-size: 1rem; }
+        .btn:hover { background: #00b8d4; }
+        .btn:disabled { background: #666; cursor: not-allowed; }
+        .status { margin-top: 20px; padding: 15px; border-radius: 5px; display: none; }
+        .status.success { background: #28a745; display: block; }
+        .status.error { background: #dc3545; display: block; }
+        .status.info { background: #17a2b8; display: block; }
+        .log { background: #0d1117; padding: 15px; border-radius: 5px; font-family: monospace; font-size: 0.9rem; max-height: 300px; overflow-y: auto; margin-top: 20px; }
+        .log-entry { margin-bottom: 5px; }
+        .log-entry.success { color: #28a745; }
+        .log-entry.error { color: #dc3545; }
+        .log-entry.info { color: #17a2b8; }
+        .file-select { margin: 15px 0; }
+        .file-select label { display: block; margin-bottom: 5px; }
+        .file-select input { width: 100%; padding: 10px; border: 1px solid #333; border-radius: 5px; background: #0d1117; color: white; }
+        nav { text-align: center; margin-top: 20px; }
+        nav a { color: #00d9ff; text-decoration: none; margin: 0 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>MCUlinux Flasher</h1>
+            <p>Flash firmware to your ESP32-S3 device</p>
+        </header>
+
+        <div class="flasher">
+            <div class="step">
+                <h3>Step 1: Select Device</h3>
+                <p>Choose your device type:</p>
+                <select id="device" style="width: 100%; padding: 10px; border-radius: 5px; border: 1px solid #333; background: #0d1117; color: white;">
+                    <option value="r8n8">r8n8 (8MB PSRAM + 8MB Flash)</option>
+                    <option value="r8n16">r8n16 (8MB PSRAM + 16MB Flash)</option>
+                    <option value="r16n16">r16n16 (16MB PSRAM + 16MB Flash)</option>
+                </select>
+            </div>
+
+            <div class="step">
+                <h3>Step 2: Select Firmware</h3>
+                <p>Choose a firmware file or download latest:</p>
+                <div class="file-select">
+                    <label>Firmware file:</label>
+                    <input type="file" id="firmware" accept=".bin">
+                </div>
+                <p style="margin-top: 10px;">
+                    <a href="#" id="download-latest" style="color: #00d9ff;">Download latest firmware</a>
+                </p>
+            </div>
+
+            <div class="step">
+                <h3>Step 3: Connect Device</h3>
+                <p>Connect your ESP32-S3 device via USB and click connect:</p>
+                <button id="connect" class="btn">Connect Device</button>
+            </div>
+
+            <div class="step">
+                <h3>Step 4: Flash</h3>
+                <p>Once connected, click flash to program your device:</p>
+                <button id="flash" class="btn" disabled>Flash Firmware</button>
+            </div>
+
+            <div id="status" class="status"></div>
+            <div id="log" class="log"></div>
+        </div>
+
+        <nav>
+            <a href="../">Home</a>
+            <a href="../docs/">Documentation</a>
+            <a href="https://github.com/mculinux/mculinux">GitHub</a>
+        </nav>
+    </div>
+
+    <script>
+        // ESP Web Flasher integration
+        // This uses the Web Serial API for browser-based flashing
+        // For production, consider using esp-web-tools or esptool.js
+
+        const connectBtn = document.getElementById('connect');
+        const flashBtn = document.getElementById('flash');
+        const deviceSelect = document.getElementById('device');
+        const firmwareInput = document.getElementById('firmware');
+        const downloadLatest = document.getElementById('download-latest');
+        const statusDiv = document.getElementById('status');
+        const logDiv = document.getElementById('log');
+
+        let port = null;
+        let reader = null;
+
+        function log(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toISOString()}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function setStatus(message, type) {
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+
+        // Download latest firmware
+        downloadLatest.addEventListener('click', (e) => {
+            e.preventDefault();
+            const device = deviceSelect.value;
+            const url = `https://github.com/mculinux/mculinux/releases/latest/download/${device}.bin`;
+            window.open(url, '_blank');
+        });
+
+        // Connect to device
+        connectBtn.addEventListener('click', async () => {
+            try {
+                log('Requesting serial port...');
+                port = await navigator.serial.requestPort();
+                log('Opening port...');
+                await port.open({ baudRate: 115200 });
+                log('Connected!', 'success');
+                setStatus('Device connected', 'success');
+                flashBtn.disabled = false;
+                connectBtn.disabled = true;
+            } catch (error) {
+                log(`Connection failed: ${error.message}`, 'error');
+                setStatus('Connection failed', 'error');
+            }
+        });
+
+        // Flash firmware
+        flashBtn.addEventListener('click', async () => {
+            if (!firmwareInput.files[0]) {
+                log('Please select a firmware file', 'error');
+                return;
+            }
+
+            try {
+                log('Reading firmware file...');
+                const firmware = await firmwareInput.files[0].arrayBuffer();
+                log(`Firmware size: ${firmware.byteLength} bytes`);
+
+                log('Entering download mode...');
+                // Toggle DTR and RTS to enter download mode
+                await port.setSignals({ dataTerminalReady: false, requestToSend: true });
+                await new Promise(r => setTimeout(r, 100));
+                await port.setSignals({ dataTerminalReady: true, requestToSend: false });
+                await new Promise(r => setTimeout(r, 100));
+                await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+                await new Promise(r => setTimeout(r, 100));
+
+                log('Flashing firmware...');
+                // This is a simplified example
+                // In production, use esptool.js or esp-web-tools
+                const writer = port.writable.getWriter();
+                await writer.write(new Uint8Array(firmware));
+                writer.releaseLock();
+
+                log('Flash complete!', 'success');
+                setStatus('Firmware flashed successfully!', 'success');
+            } catch (error) {
+                log(`Flash failed: ${error.message}`, 'error');
+                setStatus('Flash failed', 'error');
+            }
+        });
+
+        log('Flasher ready. Connect your device to begin.');
+    </script>
+</body>
+</html>

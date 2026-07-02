@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  builder:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.builder
+    image: mculinux-builder
+    volumes:
+      - ./mculinux-packages:/packages
+      - ./output:/output
+    working_dir: /workspace
+
+  idf:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.idf
+    image: mculinux-idf
+    volumes:
+      - ./images:/images
+      - ./output:/output
+    working_dir: /workspace
+
+  qemu:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.qemu
+    image: mculinux-qemu
+    volumes:
+      - ./output:/output
+      - ./tests:/tests
+    working_dir: /workspace
+    privileged: true
+    network_mode: host
+
+  website:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./website:/usr/share/nginx/html:ro
+    working_dir: /usr/share/nginx/html
+
+networks:
+  default:
+    name: mculinux

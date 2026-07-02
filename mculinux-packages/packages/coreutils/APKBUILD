@@ -1,0 +1,131 @@
+# Contributor: MCUlinux <dev@mculinux.org>
+# Maintainer: MCUlinux <dev@mculinux.org>
+pkgname=coreutils
+pkgver=9.4
+pkgrel=0
+pkgdesc="Basic UNIX utilities"
+url="https://www.gnu.org/software/coreutils/"
+arch="xtensa"
+license="GPL-3.0-only"
+depends="musl"
+makedepends="linux-headers"
+subpackages="$pkgname-doc $pkgname-lang"
+source="https://ftp.gnu.org/gnu/coreutils/coreutils-$pkgver.tar.xz"
+
+build() {
+    cd "$srcdir/coreutils-$pkgver"
+
+    # ESP32-S3 specific flags
+    export CFLAGS="$CFLAGS -mtext-section-literals"
+    export LDFLAGS="$LDFLAGS -mlongcalls"
+
+    ./configure \
+        --host=xtensa-esp32s3-elf \
+        --prefix=/usr \
+        --disable-nls \
+        --disable-assert \
+        --disable-backup-links \
+        --disable-chcon \
+        --disable-chroot \
+        --disable-coreutils \
+        --disable-cp \
+        --disable-date \
+        --disable-dd \
+        --disable-df \
+        --disable-dir \
+        --disable-dircolors \
+        --disable-dirname \
+        --disable-du \
+        --disable-echo \
+        --disable-env \
+        --disable-expand \
+        --disable-expr \
+        --disable-factor \
+        --disable-false \
+        --disable-fmt \
+        --disable-fold \
+        --disable-groups \
+        --disable-head \
+        --disable-hostid \
+        --disable-hostname \
+        --disable-id \
+        --disable-install \
+        --disable-join \
+        --disable-kill \
+        --disable-link \
+        --disable-ln \
+        --disable-logname \
+        --disable-ls \
+        --disable-md5sum \
+        --disable-mkdir \
+        --disable-mkfifo \
+        --disable-mknod \
+        --disable-mktemp \
+        --disable-mv \
+        --disable-nice \
+        --disable-nl \
+        --disable-nohup \
+        --disable-nproc \
+        --disable-numfmt \
+        --disable-od \
+        --disable-paste \
+        --disable-pathchk \
+        --disable-pinky \
+        --disable-pr \
+        --disable-printenv \
+        --disable-printf \
+        --disable-ptx \
+        --disable-pwd \
+        --disable-readlink \
+        --disable-realpath \
+        --disable-rm \
+        --disable-rmdir \
+        --disable-seq \
+        --disable-sha1sum \
+        --disable-sha224sum \
+        --disable-sha256sum \
+        --disable-sha384sum \
+        --disable-sha512sum \
+        --disable-shred \
+        --disable-shuf \
+        --disable-sleep \
+        --disable-sort \
+        --disable-split \
+        --disable-stat \
+        --disable-stty \
+        --disable-sum \
+        --disable-sync \
+        --disable-tac \
+        --disable-tail \
+        --disable-tee \
+        --disable-test \
+        --disable-timeout \
+        --disable-touch \
+        --disable-tr \
+        --disable-true \
+        --disable-truncate \
+        --disable-tsort \
+        --disable-tty \
+        --disable-uname \
+        --disable-unexpand \
+        --disable-uniq \
+        --disable-unlink \
+        --disable-uptime \
+        --disable-users \
+        --disable-vdir \
+        --disable-wc \
+        --disable-who \
+        --disable-whoami \
+        --disable-yes
+
+    make -j$(nproc)
+}
+
+package() {
+    cd "$srcdir/coreutils-$pkgver"
+    make DESTDIR="$pkgdir" install
+
+    # Remove unnecessary files
+    rm -rf "$pkgdir/usr/share/man"
+    rm -rf "$pkgdir/usr/share/doc"
+}

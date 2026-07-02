@@ -1,0 +1,48 @@
+# Contributor: MCUlinux <dev@mculinux.org>
+# Maintainer: MCUlinux <dev@mculinux.org>
+pkgname=esp32s3-arch
+pkgver=1.0.0
+pkgrel=0
+pkgdesc="ESP32-S3 architecture support for Alpine Linux"
+url="https://mculinux.org"
+arch="xtensa"
+license="GPL-3.0"
+depends=""
+makedepends="esp-idf gcc-xtensa-elf binutils-xtensa-elf"
+subpackages=""
+source=""
+options="!check"
+
+build() {
+    # Set ESP32-S3 specific environment
+    export IDF_TARGET="esp32s3"
+    export IDF_PATH="/opt/esp-idf"
+    export PATH="$IDF_PATH/tools:$PATH"
+
+    # Source ESP-IDF environment
+    . "$IDF_PATH/export.sh"
+
+    # Configure cross-compilation
+    ./configure \
+        --host=xtensa-esp32s3-elf \
+        --prefix=/usr \
+        --with-sysroot=/ \
+        --enable-target=esp32s3
+}
+
+check() {
+    # No tests for architecture package
+    true
+}
+
+package() {
+    # Install architecture-specific files
+    install -dm755 "$pkgdir/usr/xtensa-esp32s3-elf"
+    install -dm755 "$pkgdir/usr/lib/xtensa-esp32s3-elf"
+
+    # Install toolchain
+    cp -r /opt/esp-idf/components/esp32s3 "$pkgdir/usr/xtensa-esp32s3-elf/"
+
+    # Install configuration
+    install -Dm644 "$srcdir"/esp32s3.cfg "$pkgdir/etc/mculinux/esp32s3.cfg" 2>/dev/null || true
+}

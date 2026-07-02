@@ -1,0 +1,36 @@
+# Contributor: MCUlinux <dev@mculinux.org>
+# Maintainer: MCUlinux <dev@mculinux.org>
+pkgname=btop
+pkgver=1.4.0
+pkgrel=0
+pkgdesc="Resource monitor that shows usage and stats"
+url="https://github.com/aristocratos/btop"
+arch="xtensa"
+license="Apache-2.0"
+depends="musl"
+makedepends="linux-headers"
+subpackages="$pkgname-doc"
+source="https://github.com/aristocratos/btop/releases/download/v$pkgver/btop-$pkgver.tar.gz"
+
+build() {
+    cd "$srcdir/btop-$pkgver"
+
+    # ESP32-S3 specific flags
+    export CXXFLAGS="$CXXFLAGS -mtext-section-literals"
+    export LDFLAGS="$LDFLAGS -mlongcalls"
+
+    make \
+        CXX=xtensa-esp32s3-elf-g++ \
+        CC=xtensa-esp32s3-elf-gcc \
+        STRIP=xtensa-esp32s3-elf-strip \
+        PREFIX=/usr \
+        DESTDIR="$pkgdir"
+}
+
+package() {
+    cd "$srcdir/btop-$pkgver"
+    make DESTDIR="$pkgdir" install
+
+    # Remove unnecessary files
+    rm -rf "$pkgdir/usr/share/man"
+}

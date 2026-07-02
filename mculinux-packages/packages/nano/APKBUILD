@@ -1,0 +1,47 @@
+# Contributor: MCUlinux <dev@mculinux.org>
+# Maintainer: MCUlinux <dev@mculinux.org>
+pkgname=nano
+pkgver=8.0
+pkgrel=0
+pkgdesc="Simple text editor"
+url="https://www.nano-editor.org"
+arch="xtensa"
+license="GPL-3.0-only"
+depends="musl ncurses"
+makedepends="linux-headers"
+subpackages="$pkgname-doc"
+source="https://www.nano-editor.org/dist/v8/nano-$pkgver.tar.xz"
+
+build() {
+    cd "$srcdir/nano-$pkgver"
+
+    # ESP32-S3 specific flags
+    export CFLAGS="$CFLAGS -mtext-section-literals"
+    export LDFLAGS="$LDFLAGS -mlongcalls"
+
+    ./configure \
+        --host=xtensa-esp32s3-elf \
+        --prefix=/usr \
+        --disable-nls \
+        --enable-tiny \
+        --disable-multibuffer \
+        --disable-altrc \
+        --disable-color \
+        --disable-extra \
+        --disable-iothread \
+        --disable-mouse \
+        --disable-nanorc \
+        --disable-old-keys \
+        --disable-spell \
+        --disable-tabcomp
+
+    make -j$(nproc)
+}
+
+package() {
+    cd "$srcdir/nano-$pkgver"
+    make DESTDIR="$pkgdir" install
+
+    # Remove unnecessary files
+    rm -rf "$pkgdir/usr/share/man"
+}

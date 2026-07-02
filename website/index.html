@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCUlinux - Linux for ESP32-S3</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+        header { background: #1a1a2e; color: white; padding: 1rem 0; }
+        nav { display: flex; justify-content: space-between; align-items: center; }
+        nav a { color: white; text-decoration: none; margin-left: 20px; }
+        nav a:hover { color: #00d9ff; }
+        .logo { font-size: 1.5rem; font-weight: bold; }
+        main { padding: 40px 0; }
+        .hero { text-align: center; padding: 60px 0; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white; }
+        .hero h1 { font-size: 2.5rem; margin-bottom: 20px; }
+        .hero p { font-size: 1.2rem; margin-bottom: 30px; }
+        .btn { display: inline-block; padding: 12px 30px; background: #00d9ff; color: #1a1a2e; text-decoration: none; border-radius: 5px; font-weight: bold; margin: 10px; }
+        .btn:hover { background: #00b8d4; }
+        .devices { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px; padding: 40px 0; }
+        .device { border: 1px solid #ddd; border-radius: 8px; padding: 20px; }
+        .device h3 { color: #1a1a2e; margin-bottom: 15px; }
+        .specs { list-style: none; }
+        .specs li { padding: 5px 0; }
+        .specs li strong { color: #1a1a2e; }
+        footer { background: #1a1a2e; color: white; padding: 20px 0; text-align: center; }
+        .download { background: #f5f5f5; padding: 40px 0; }
+        .download h2 { text-align: center; margin-bottom: 30px; }
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; }
+        th, td { padding: 15px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background: #1a1a2e; color: white; }
+        tr:hover { background: #f5f5f5; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <nav>
+                <div class="logo">MCUlinux</div>
+                <div>
+                    <a href="#devices">Devices</a>
+                    <a href="#download">Download</a>
+                    <a href="flasher/">Flasher</a>
+                    <a href="docs/">Docs</a>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="container">
+            <h1>Linux for ESP32-S3</h1>
+            <p>Lightweight Alpine Linux images for ESP32-S3 microcontrollers</p>
+            <a href="#download" class="btn">Download Latest</a>
+            <a href="flasher/" class="btn">Web Flasher</a>
+        </div>
+    </section>
+
+    <section id="devices">
+        <div class="container">
+            <h2 style="text-align: center; margin-bottom: 30px;">Supported Devices</h2>
+            <div class="devices">
+                <div class="device">
+                    <h3>r8n8</h3>
+                    <ul class="specs">
+                        <li><strong>PSRAM:</strong> 8MB</li>
+                        <li><strong>Flash:</strong> 8MB</li>
+                        <li><strong>Target:</strong> ESP32-S3</li>
+                        <li><strong>Status:</strong> Stable</li>
+                    </ul>
+                </div>
+                <div class="device">
+                    <h3>r8n16</h3>
+                    <ul class="specs">
+                        <li><strong>PSRAM:</strong> 8MB</li>
+                        <li><strong>Flash:</strong> 16MB</li>
+                        <li><strong>Target:</strong> ESP32-S3</li>
+                        <li><strong>Status:</strong> Stable</li>
+                    </ul>
+                </div>
+                <div class="device">
+                    <h3>r16n16</h3>
+                    <ul class="specs">
+                        <li><strong>PSRAM:</strong> 16MB</li>
+                        <li><strong>Flash:</strong> 16MB</li>
+                        <li><strong>Target:</strong> ESP32-S3</li>
+                        <li><strong>Status:</strong> Stable</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="download" id="download">
+        <div class="container">
+            <h2>Download</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Device</th>
+                        <th>Version</th>
+                        <th>Size</th>
+                        <th>Download</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>r8n8</td>
+                        <td>latest</td>
+                        <td>~2MB</td>
+                        <td><a href="https://github.com/mculinux/mculinux/releases/latest/download/r8n8.zip">Download</a></td>
+                    </tr>
+                    <tr>
+                        <td>r8n16</td>
+                        <td>latest</td>
+                        <td>~2MB</td>
+                        <td><a href="https://github.com/mculinux/mculinux/releases/latest/download/r8n16.zip">Download</a></td>
+                    </tr>
+                    <tr>
+                        <td>r16n16</td>
+                        <td>latest</td>
+                        <td>~2MB</td>
+                        <td><a href="https://github.com/mculinux/mculinux/releases/latest/download/r16n16.zip">Download</a></td>
+                    </tr>
+                </tbody>
+            </table>
+            <p style="margin-top: 20px; text-align: center;">
+                <a href="https://github.com/mculinux/mculinux/releases">View all releases</a>
+            </p>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2024 MCUlinux. Licensed under GPL-3.0.</p>
+        </div>
+    </footer>
+</body>
+</html>
