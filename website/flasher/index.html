@@ -10,45 +10,33 @@
         a { color: #00d4ff; text-decoration: none; }
         a:hover { color: #00f0ff; }
         .container { max-width: 700px; margin: 0 auto; padding: 0 24px; }
-
         header { padding: 20px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
         nav { display: flex; justify-content: space-between; align-items: center; }
         .logo { font-size: 1.4rem; font-weight: 700; color: #fff; }
         .logo span { color: #00d4ff; }
         nav .links a { margin-left: 28px; color: #888; font-size: 0.95rem; font-weight: 500; }
         nav .links a:hover { color: #fff; }
-
         .flasher { padding: 60px 0; }
         h1 { font-size: 2rem; font-weight: 700; color: #fff; text-align: center; margin-bottom: 8px; }
         .subtitle { text-align: center; color: #666; margin-bottom: 48px; }
-
         .step { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 24px; margin-bottom: 16px; }
         .step-num { display: inline-block; width: 28px; height: 28px; background: rgba(0,212,255,0.1); color: #00d4ff; border-radius: 50%; text-align: center; line-height: 28px; font-size: 0.8rem; font-weight: 700; margin-right: 10px; }
         .step h3 { display: inline; font-size: 1rem; font-weight: 600; color: #fff; }
         .step p { color: #888; margin-top: 10px; font-size: 0.9rem; }
-
-        select, input[type="file"] { width: 100%; padding: 12px 14px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; background: rgba(255,255,255,0.04); color: #fff; font-size: 0.9rem; margin-top: 10px; }
-        select:focus, input:focus { outline: none; border-color: rgba(0,212,255,0.4); }
+        select { width: 100%; padding: 12px 14px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; background: rgba(255,255,255,0.04); color: #fff; font-size: 0.9rem; margin-top: 10px; }
+        select:focus { outline: none; border-color: rgba(0,212,255,0.4); }
         select option { background: #1a1a2e; }
-
         .btn { display: inline-block; padding: 12px 28px; border-radius: 8px; font-weight: 600; font-size: 0.9rem; border: none; cursor: pointer; transition: all 0.2s; margin-top: 12px; }
         .btn-primary { background: #00d4ff; color: #0a0a0f; }
         .btn-primary:hover { background: #00f0ff; }
         .btn:disabled { background: rgba(255,255,255,0.06); color: #555; cursor: not-allowed; }
-
         .download-link { display: inline-block; margin-top: 10px; color: #00d4ff; font-size: 0.85rem; }
-
-        .status { margin-top: 20px; padding: 14px 18px; border-radius: 8px; font-size: 0.9rem; display: none; }
-        .status.success { background: rgba(40,167,69,0.1); border: 1px solid rgba(40,167,69,0.2); color: #28a745; display: block; }
-        .status.error { background: rgba(220,53,69,0.1); border: 1px solid rgba(220,53,69,0.2); color: #dc3545; display: block; }
-        .status.info { background: rgba(0,212,255,0.06); border: 1px solid rgba(0,212,255,0.15); color: #00d4ff; display: block; }
-
-        .log { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); padding: 16px; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; max-height: 250px; overflow-y: auto; margin-top: 16px; display: none; }
-        .log-entry { margin-bottom: 4px; color: #666; }
-        .log-entry.success { color: #28a745; }
-        .log-entry.error { color: #dc3545; }
-        .log-entry.info { color: #00d4ff; }
-
+        .warning-box { background: rgba(255,193,7,0.06); border: 1px solid rgba(255,193,7,0.15); padding: 14px 18px; border-radius: 8px; margin-top: 20px; color: #aaa; font-size: 0.85rem; }
+        .warning-box strong { color: #ffc107; }
+        .esptool-section { margin-top: 32px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 24px; }
+        .esptool-section h3 { font-size: 1rem; font-weight: 600; color: #fff; margin-bottom: 12px; }
+        pre { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); padding: 16px 20px; border-radius: 8px; overflow-x: auto; margin-top: 10px; font-size: 0.85rem; }
+        code { font-family: 'JetBrains Mono', monospace; color: #ccc; }
         footer { padding: 40px 0; border-top: 1px solid rgba(255,255,255,0.06); text-align: center; color: #444; font-size: 0.85rem; }
     </style>
 </head>
@@ -81,25 +69,32 @@
             </div>
 
             <div class="step">
-                <span class="step-num">2</span><h3>Select Firmware</h3>
-                <input type="file" id="firmware" accept=".bin,.zip">
-                <a href="#" id="download-latest" class="download-link">Download latest firmware</a>
+                <span class="step-num">2</span><h3>Get Firmware</h3>
+                <p>Download the latest release for your device</p>
+                <a href="#" id="download-latest" class="btn btn-primary" style="margin-top:8px;">Download Firmware</a>
             </div>
 
             <div class="step">
-                <span class="step-num">3</span><h3>Connect Device</h3>
-                <p>Connect your ESP32-S3 via USB</p>
-                <button id="connect" class="btn btn-primary">Connect</button>
+                <span class="step-num">3</span><h3>Flash via Serial</h3>
+                <p>Use esptool.py to flash the firmware to your device</p>
+                <pre><code>pip install esptool
+
+# For r8n8:
+esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 460800 \
+    write_flash 0x0 flash_r8n8.bin
+
+# For r8n16:
+esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 460800 \
+    write_flash 0x0 flash_r8n16.bin
+
+# For r16n16:
+esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 460800 \
+    write_flash 0x0 flash_r16n16.bin</code></pre>
             </div>
 
-            <div class="step">
-                <span class="step-num">4</span><h3>Flash</h3>
-                <p>Once connected, flash the firmware</p>
-                <button id="flash" class="btn btn-primary" disabled>Flash</button>
+            <div class="warning-box">
+                <strong>Web Flasher:</strong> Browser-based flashing requires HTTPS. For local development, use esptool.py above.
             </div>
-
-            <div id="status" class="status"></div>
-            <div id="log" class="log"></div>
         </div>
     </div>
 
@@ -110,85 +105,14 @@
     </footer>
 
     <script>
-        const connectBtn = document.getElementById('connect');
-        const flashBtn = document.getElementById('flash');
         const deviceSelect = document.getElementById('device');
-        const firmwareInput = document.getElementById('firmware');
         const downloadLatest = document.getElementById('download-latest');
-        const statusDiv = document.getElementById('status');
-        const logDiv = document.getElementById('log');
-
-        let port = null;
-
-        function log(message, type = 'info') {
-            logDiv.style.display = 'block';
-            const entry = document.createElement('div');
-            entry.className = `log-entry ${type}`;
-            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-            logDiv.appendChild(entry);
-            logDiv.scrollTop = logDiv.scrollHeight;
-        }
-
-        function setStatus(message, type) {
-            statusDiv.textContent = message;
-            statusDiv.className = `status ${type}`;
-        }
 
         downloadLatest.addEventListener('click', (e) => {
             e.preventDefault();
             const device = deviceSelect.value;
             window.open(`https://github.com/mculinux/mculinux/releases/latest/download/${device}.zip`, '_blank');
         });
-
-        connectBtn.addEventListener('click', async () => {
-            try {
-                log('Requesting serial port...');
-                port = await navigator.serial.requestPort();
-                log('Opening port at 115200...');
-                await port.open({ baudRate: 115200 });
-                log('Connected', 'success');
-                setStatus('Device connected', 'success');
-                flashBtn.disabled = false;
-                connectBtn.disabled = true;
-            } catch (error) {
-                log(`Connection failed: ${error.message}`, 'error');
-                setStatus('Connection failed', 'error');
-            }
-        });
-
-        flashBtn.addEventListener('click', async () => {
-            if (!firmwareInput.files[0]) {
-                log('Select a firmware file first', 'error');
-                return;
-            }
-
-            try {
-                log('Reading firmware...');
-                const firmware = await firmwareInput.files[0].arrayBuffer();
-                log(`${firmware.byteLength} bytes loaded`);
-
-                log('Entering download mode...');
-                await port.setSignals({ dataTerminalReady: false, requestToSend: true });
-                await new Promise(r => setTimeout(r, 100));
-                await port.setSignals({ dataTerminalReady: true, requestToSend: false });
-                await new Promise(r => setTimeout(r, 100));
-                await port.setSignals({ dataTerminalReady: false, requestToSend: false });
-                await new Promise(r => setTimeout(r, 100));
-
-                log('Flashing...');
-                const writer = port.writable.getWriter();
-                await writer.write(new Uint8Array(firmware));
-                writer.releaseLock();
-
-                log('Done', 'success');
-                setStatus('Firmware flashed successfully', 'success');
-            } catch (error) {
-                log(`Flash failed: ${error.message}`, 'error');
-                setStatus('Flash failed', 'error');
-            }
-        });
-
-        log('Ready. Connect your device to begin.');
     </script>
 </body>
 </html>
