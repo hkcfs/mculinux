@@ -68,7 +68,7 @@
 
             <section id="getting-started">
                 <h2>Getting Started</h2>
-                <p>MCUlinux is a lightweight Alpine Linux distribution for ESP32-S3 microcontrollers. It provides a familiar Linux environment with package management capabilities.</p>
+                <p>MCUlinux is a lightweight musl-based Linux distribution for ESP32-S3 microcontrollers. It provides a familiar Linux environment with package management capabilities.</p>
 
                 <div class="note">
                     <strong>Note:</strong> MCUlinux currently supports ESP32-S3 only. Support for other ESP32 variants is planned for future releases.
@@ -133,25 +133,23 @@ pip install esptool
 wget https://github.com/mculinux/mculinux/releases/latest/download/r8n8.zip
 unzip r8n8.zip
 
-# Flash firmware
+# Flash firmware (combined image)
 esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 115200 \
-    write_flash 0x0 \
-    bootloader.bin \
-    partitions.bin \
-    firmware.bin</code></pre>
+    write_flash 0x0 flash_r8n8.bin</code></pre>
             </section>
 
             <section id="configuration">
                 <h2>Configuration</h2>
                 <h3>Boot Configuration</h3>
-                <p>MCUlinux uses ESP-IDF's menuconfig system. To modify boot settings:</p>
-                <pre><code># Enter menuconfig
-idf.py menuconfig
+                <p>MCUlinux uses Buildroot for system configuration. The kernel and rootfs are pre-built in the release images.</p>
+                <pre><code># Boot log shows kernel version and init process
+# Serial console is available at 115200 baud
 
-# Key settings:
-# - Bootloader → Boot menu timeout
-# - Partition Table → Custom partition table
-# - Compiler options → Optimization level</code></pre>
+# Key boot sequence:
+# 1. ESP32-S3 bootloader
+# 2. MCUlinux kernel (Linux 6.16)
+# 3. BusyBox init
+# 4. Shell available on serial console</code></pre>
 
                 <h3>Network Configuration</h3>
                 <pre><code># Configure WiFi
@@ -278,17 +276,15 @@ screen /dev/ttyUSB0 115200
 
             <section id="ota">
                 <h2>OTA Updates</h2>
-                <p>MCUlinux supports Over-The-Air updates via the partition table.</p>
+                <p>MCUlinux supports Over-The-Air updates by re-flashing the firmware partition via serial or WiFi.</p>
 
-                <h3>OTA Process</h3>
-                <pre><code># Check current version
-cat /etc/mculinux/version
+                <h3>Update Process</h3>
+                <pre><code># Download new firmware
+wget http://server/mculinux-r8n8.zip
 
-# Download new firmware
-wget http://server/firmware.bin
-
-# Apply update
-mculinux-ota apply firmware.bin
+# Flash via serial
+esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 115200 \
+    write_flash 0x0 mculinux-r8n8.zip
 
 # Reboot
 reboot</code></pre>
