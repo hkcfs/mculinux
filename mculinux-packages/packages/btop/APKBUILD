@@ -16,7 +16,7 @@ build() {
     cd "$srcdir/btop-$pkgver"
 
     # ESP32-S3 specific flags
-    export CXXFLAGS="$CXXFLAGS -mtext-section-literals"
+    export CXXFLAGS="$CXXFLAGS -Os -mtext-section-literals"
     export LDFLAGS="$LDFLAGS -mlongcalls"
 
     make \

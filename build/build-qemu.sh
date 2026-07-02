@@ -3,6 +3,7 @@
 # Builds ESP32-S3 Linux and creates a flash image for QEMU testing
 # Usage: ./build-qemu.sh [device]
 # Devices: r8n8 (default), r8n16, r16n16
+# Uses musl libc for Alpine Linux compatibility
 
 set -e
 
@@ -14,9 +15,10 @@ OUTPUT_DIR="/app/output"
 DEVICE="${1:-r8n8}"
 
 echo "=========================================="
-echo "MCUlinux QEMU Builder"
+echo "MCUlinux QEMU Builder (musl)"
 echo "=========================================="
 echo "Device: $DEVICE"
+echo "libc: musl (Alpine-compatible)"
 echo ""
 
 # Source device config
@@ -45,21 +47,57 @@ if [ ! -f xtensa-dynconfig/esp32s3.so ]; then
 fi
 export XTENSA_GNU_CONFIG="$(pwd)/xtensa-dynconfig/esp32s3.so"
 
-# toolchain
-if [ ! -x crosstool-NG/builds/xtensa-esp32s3-linux-uclibcfdpic/bin/xtensa-esp32s3-linux-uclibcfdpic-gcc ]; then
-    echo "Building toolchain..."
+# Toolchain - musl variant
+TOOLCHAIN_PREFIX="xtensa-esp32s3-linux-muslfdpic"
+if [ ! -x crosstool-NG/builds/${TOOLCHAIN_PREFIX}/bin/${TOOLCHAIN_PREFIX}-gcc ]; then
+    echo "Building musl toolchain..."
     git clone https://github.com/jcmvbkbc/crosstool-NG.git -b xtensa-fdpic
     pushd crosstool-NG
+
+    # Create musl config for ESP32-S3
+    mkdir -p samples/xtensa-esp32s3-linux-muslfdpic
+    cat > samples/xtensa-esp32s3-linux-muslfdpic/crosstool.config << 'CTEOF'
+CT_CONFIG_VERSION="4"
+CT_EXPERIMENTAL=y
+# CT_PREFIX_DIR_RO is not set
+CT_ARCH_XTENSA=y
+# CT_DEMULTILIB is not set
+# CT_ARCH_USE_MMU is not set
+CT_TARGET_CFLAGS="-mauto-litpools -Os"
+CT_TARGET_VENDOR="esp32s3"
+CT_KERNEL_LINUX=y
+CT_LINUX_SRC_DEVEL=y
+CT_LINUX_DEVEL_URL="https://github.com/jcmvbkbc/linux-xtensa.git"
+CT_LINUX_DEVEL_BRANCH="xtensa-6.16-esp32"
+CT_ARCH_BINFMT_FDPIC=y
+CT_BINUTILS_SRC_DEVEL=y
+CT_BINUTILS_DEVEL_URL="https://github.com/jcmvbkbc/binutils-gdb-xtensa.git"
+CT_BINUTILS_DEVEL_BRANCH="xtensa-2.42-fdpic"
+CT_BINUTILS_PLUGINS=y
+# CT_BINUTILS_RELRO is not set
+CT_MUSL_SRC_DEVEL=y
+CT_MUSL_DEVEL_URL="https://github.com/jcmvbkbc/musl-xtensa.git"
+CT_MUSL_DEVEL_BRANCH="xtensa-1.2.5-fdpic"
+CT_GCC_SRC_DEVEL=y
+CT_GCC_DEVEL_URL="https://github.com/jcmvbkbc/gcc-xtensa.git"
+CT_GCC_DEVEL_BRANCH="xtensa-14-9655-fdpic-musl"
+# CT_CC_GCC_SJLJ_EXCEPTIONS is not set
+CTEOF
+
     ./bootstrap && ./configure --enable-local && make
-    ./ct-ng xtensa-esp32s3-linux-uclibcfdpic
+    ./ct-ng xtensa-esp32s3-linux-muslfdpic
     CT_PREFIX="$(pwd)/builds" nice ./ct-ng build
     popd
 fi
 
+# Verify toolchain
+[ -x "crosstool-NG/builds/${TOOLCHAIN_PREFIX}/bin/${TOOLCHAIN_PREFIX}-gcc" ] || { echo "ERROR: musl toolchain not built"; exit 1; }
+echo "Musl toolchain ready: $(crosstool-NG/builds/${TOOLCHAIN_PREFIX}/bin/${TOOLCHAIN_PREFIX}-gcc --version | head -1)"
+
 # kernel and rootfs
 if [ ! -d buildroot ]; then
-    echo "Cloning buildroot..."
-    git clone https://github.com/jcmvbkbc/buildroot -b xtensa-2024.08-fdpic
+    echo "Cloning buildroot (xtensa-2025.08-fdpic, kernel 6.16)..."
+    git clone https://github.com/jcmvbkbc/buildroot -b xtensa-2025.08-fdpic
 else
     pushd buildroot
     git pull
@@ -69,9 +107,20 @@ fi
 if [ ! -d "build-buildroot-${BUILDROOT_CONFIG}" ]; then
     echo "Configuring buildroot..."
     nice make -C buildroot O="$(pwd)/build-buildroot-${BUILDROOT_CONFIG}" "${BUILDROOT_CONFIG}_defconfig"
-    buildroot/utils/config --file "build-buildroot-${BUILDROOT_CONFIG}/.config" --set-str TOOLCHAIN_EXTERNAL_PATH "$(pwd)/crosstool-NG/builds/xtensa-esp32s3-linux-uclibcfdpic"
-    buildroot/utils/config --file "build-buildroot-${BUILDROOT_CONFIG}/.config" --set-str TOOLCHAIN_EXTERNAL_PREFIX '$(ARCH)-esp32s3-linux-uclibcfdpic'
-    buildroot/utils/config --file "build-buildroot-${BUILDROOT_CONFIG}/.config" --set-str TOOLCHAIN_EXTERNAL_CUSTOM_PREFIX '$(ARCH)-esp32s3-linux-uclibcfdpic'
+
+    # Override toolchain to use musl
+    buildroot/utils/config --file "build-buildroot-${BUILDROOT_CONFIG}/.config" --set-str TOOLCHAIN_EXTERNAL_PATH "$(pwd)/crosstool-NG/builds/${TOOLCHAIN_PREFIX}"
+    buildroot/utils/config --file "build-buildroot-${BUILDROOT_CONFIG}/.config" --set-str TOOLCHAIN_EXTERNAL_PREFIX '$(ARCH)-esp32s3-linux-muslfdpic'
+    buildroot/utils/config --file "build-buildroot-${BUILDROOT_CONFIG}/.config" --set-str TOOLCHAIN_EXTERNAL_CUSTOM_PREFIX '$(ARCH)-esp32s3-linux-muslfdpic'
+
+    # Enable additional packages
+    echo "Enabling additional packages (htop, nano)..."
+    buildroot/utils/config --file "build-buildroot-${BUILDROOT_CONFIG}/.config" --enable BR2_PACKAGE_HTOP
+    buildroot/utils/config --file "build-buildroot-${BUILDROOT_CONFIG}/.config" --enable BR2_PACKAGE_NANO
+
+    # Enforce -Os (optimize for size) globally
+    echo "Enforcing -Os (optimize for size) for all packages..."
+    buildroot/utils/config --file "build-buildroot-${BUILDROOT_CONFIG}/.config" --enable BR2_OPTIM_S
 fi
 
 echo "Building kernel and rootfs..."

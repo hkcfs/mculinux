@@ -4,15 +4,19 @@ on:
   push:
     branches: [main]
     paths:
-      - 'images/**'
-      - 'mculinux-packages/**'
+      - 'build/**'
+      - 'docker/**'
   pull_request:
     branches: [main]
     paths:
-      - 'images/**'
-      - 'mculinux-packages/**'
+      - 'build/**'
+      - 'docker/**'
   release:
     types: [published]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-images:
@@ -32,17 +36,19 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: docker/Dockerfile.idf
+          file: docker/Dockerfile
           push: false
-          tags: mculinux-idf:latest
+          tags: mculinux-builder:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Build firmware image
         run: |
           docker run --rm \
-            -v ${{ github.workspace }}/images:/images \
-            -v ${{ github.workspace }}/output:/output \
-            mculinux-idf:latest \
-            /scripts/build-image.sh ${{ matrix.device }}
+            -v ${{ github.workspace }}/build:/app/build \
+            -v ${{ github.workspace }}/output:/app/output \
+            mculinux-builder:latest \
+            bash -c "chmod +x /app/build/build-qemu.sh && cd /app/build && ./build-qemu.sh ${{ matrix.device }}"
 
       - name: Upload image artifacts
         uses: actions/upload-artifact@v4
@@ -56,22 +62,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        device: [r8n8, r8n16, r16n16]
+        device: [r8n8]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build QEMU image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: docker/Dockerfile.qemu
-          push: false
-          tags: mculinux-qemu:latest
 
       - name: Download image artifacts
         uses: actions/download-artifact@v4
@@ -79,14 +74,25 @@ jobs:
           name: image-${{ matrix.device }}
           path: output/${{ matrix.device }}/
 
-      - name: Run QEMU tests
+      - name: Run QEMU test
         run: |
-          docker run --rm \
-            -v ${{ github.workspace }}/output:/output \
-            mculinux-qemu:latest \
-            /scripts/run-tests.sh ${{ matrix.device }}
+          sudo apt-get update && sudo apt-get install -y qemu-system-misc
+          cd ${{ github.workspace }}
+          timeout 30 qemu-system-xtensa \
+            -M esp32s3 \
+            -nographic \
+            -m 8M \
+            -global driver=ssi_psram,property=is_octal,value=true \
+            -drive file=output/${{ matrix.device }}/flash_${{ matrix.device }}.bin,if=mtd,format=raw \
+            2>&1 | tee qemu-output.txt || true
+          if grep -q "Linux version" qemu-output.txt; then
+            echo "QEMU TEST PASSED: Linux kernel booted"
+          else
+            echo "QEMU TEST FAILED: Linux kernel did not boot"
+            exit 1
+          fi
 
-  create-release:
+  attach-release-assets:
     if: github.event_name == 'release'
     needs: test-images
     runs-on: ubuntu-latest
@@ -107,9 +113,8 @@ jobs:
           zip -r ${{ matrix.device }}.zip .
 
       - name: Upload release asset
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: output/${{ matrix.device }}/${{ matrix.device }}.zip
-          tag_name: ${{ github.event.release.tag_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

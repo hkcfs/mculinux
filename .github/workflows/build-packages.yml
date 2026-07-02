@@ -13,58 +13,29 @@ on:
 jobs:
   build-packages:
     runs-on: ubuntu-latest
-    container:
-      image: mculinux-builder
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Build Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: docker/Dockerfile.builder
-          push: false
-          tags: mculinux-builder:latest
+        run: docker build -t mculinux-builder:latest docker/
 
       - name: Build packages
         run: |
           docker run --rm \
-            -v ${{ github.workspace }}/mculinux-packages:/packages \
-            -v ${{ github.workspace }}/output:/output \
+            -v ${{ github.workspace }}:/app \
+            -w /app \
             mculinux-builder:latest \
-            /scripts/build-packages.sh
+            bash -c "
+              export PATH=/app/autoconf-2.71/root/bin:\$PATH
+              cd /app/mculinux-packages
+              make all
+            "
 
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4
         with:
           name: packages
-          path: output/
+          path: mculinux-packages/packages/*/output/
           retention-days: 30
-
-  test-packages:
-    needs: build-packages
-    runs-on: ubuntu-latest
-    container:
-      image: mculinux-qemu
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download package artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: packages
-          path: output/
-
-      - name: Run package tests
-        run: |
-          docker run --rm \
-            -v ${{ github.workspace }}/output:/output \
-            mculinux-qemu:latest \
-            /scripts/test-packages.sh

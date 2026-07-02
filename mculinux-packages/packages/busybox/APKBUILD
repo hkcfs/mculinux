@@ -19,8 +19,8 @@ build() {
     sed -i 's/# CONFIG_ELOADER is not set/CONFIG_ELOADER=y/' .config
     sed -i 's/# CONFIG_FEATURE_USE_SENDFILE is not set/CONFIG_FEATURE_USE_SENDFILE=y/' .config
 
-    make ARCH=xtensa CROSS_COMPILE=xtensa-esp32s3-elf- defconfig
-    make ARCH=xtensa CROSS_COMPILE=xtensa-esp32s3-elf- -j$(nproc)
+    make ARCH=xtensa CROSS_COMPILE=xtensa-esp32s3-elf- CFLAGS="-Os" defconfig
+    make ARCH=xtensa CROSS_COMPILE=xtensa-esp32s3-elf- CFLAGS="-Os" -j$(nproc)
 }
 
 package() {

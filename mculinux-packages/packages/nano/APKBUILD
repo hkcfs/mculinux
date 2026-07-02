@@ -16,7 +16,7 @@ build() {
     cd "$srcdir/nano-$pkgver"
 
     # ESP32-S3 specific flags
-    export CFLAGS="$CFLAGS -mtext-section-literals"
+    export CFLAGS="$CFLAGS -Os -mtext-section-literals"
     export LDFLAGS="$LDFLAGS -mlongcalls"
 
     ./configure \
