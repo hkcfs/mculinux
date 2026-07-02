@@ -1,10 +1,15 @@
 # Build artifacts
 output/
 firmware/
+build/.cache/
+build/.espressif/
 build/.wget-hsts
 *.o
 *.bin
 *.elf
+
+# Tools (downloaded binaries)
+tools/
 
 # Docker
 docker-compose.override.yml
