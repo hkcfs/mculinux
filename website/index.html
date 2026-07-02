@@ -7,40 +7,64 @@
     <meta name="description" content="Lightweight Linux images for ESP32-S3 microcontrollers. musl-based, with htop, nano, WiFi, and QEMU support.">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
-        header { background: #1a1a2e; color: white; padding: 1rem 0; }
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #e0e0e0; background: #0a0a0f; }
+        a { color: #00d4ff; text-decoration: none; transition: color 0.2s; }
+        a:hover { color: #00f0ff; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+        header { padding: 20px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
         nav { display: flex; justify-content: space-between; align-items: center; }
-        nav a { color: white; text-decoration: none; margin-left: 20px; }
-        nav a:hover { color: #00d9ff; }
-        .logo { font-size: 1.5rem; font-weight: bold; }
-        main { padding: 40px 0; }
-        .hero { text-align: center; padding: 60px 0; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white; }
-        .hero h1 { font-size: 2.5rem; margin-bottom: 20px; }
-        .hero p { font-size: 1.2rem; margin-bottom: 30px; }
-        .btn { display: inline-block; padding: 12px 30px; background: #00d9ff; color: #1a1a2e; text-decoration: none; border-radius: 5px; font-weight: bold; margin: 10px; }
-        .btn:hover { background: #00b8d4; }
-        .devices { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px; padding: 40px 0; }
-        .device { border: 1px solid #ddd; border-radius: 8px; padding: 20px; }
-        .device h3 { color: #1a1a2e; margin-bottom: 15px; }
-        .specs { list-style: none; }
-        .specs li { padding: 5px 0; }
-        .specs li strong { color: #1a1a2e; }
-        footer { background: #1a1a2e; color: white; padding: 20px 0; text-align: center; }
-        .download { background: #f5f5f5; padding: 40px 0; }
-        .download h2 { text-align: center; margin-bottom: 30px; }
-        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; }
-        th, td { padding: 15px; text-align: left; border-bottom: 1px solid #ddd; }
-        th { background: #1a1a2e; color: white; }
-        tr:hover { background: #f5f5f5; }
+        .logo { font-size: 1.4rem; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
+        .logo span { color: #00d4ff; }
+        nav .links a { margin-left: 28px; color: #888; font-size: 0.95rem; font-weight: 500; }
+        nav .links a:hover { color: #fff; }
+
+        .hero { text-align: center; padding: 100px 0 80px; }
+        .hero h1 { font-size: 3.2rem; font-weight: 800; color: #fff; letter-spacing: -1.5px; margin-bottom: 16px; }
+        .hero h1 span { background: linear-gradient(135deg, #00d4ff, #7c3aed); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .hero p { font-size: 1.2rem; color: #888; max-width: 520px; margin: 0 auto 36px; }
+        .btn { display: inline-block; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 0.95rem; transition: all 0.2s; }
+        .btn-primary { background: #00d4ff; color: #0a0a0f; }
+        .btn-primary:hover { background: #00f0ff; transform: translateY(-1px); }
+        .btn-secondary { background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.12); margin-left: 12px; }
+        .btn-secondary:hover { background: rgba(255,255,255,0.14); }
+
+        .devices { padding: 80px 0; }
+        .section-title { text-align: center; font-size: 2rem; font-weight: 700; color: #fff; margin-bottom: 12px; }
+        .section-sub { text-align: center; color: #666; margin-bottom: 48px; font-size: 1.05rem; }
+        .device-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+        .device { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 28px; transition: border-color 0.2s; }
+        .device:hover { border-color: rgba(0,212,255,0.3); }
+        .device-name { font-size: 1.15rem; font-weight: 700; color: #fff; margin-bottom: 16px; }
+        .device-spec { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.9rem; }
+        .device-spec:last-child { border: none; }
+        .device-spec .label { color: #666; }
+        .device-spec .value { color: #ccc; font-weight: 500; }
+
+        .download { padding: 80px 0; }
+        table { width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; overflow: hidden; }
+        th { background: rgba(255,255,255,0.04); color: #888; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 16px 20px; text-align: left; }
+        td { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.04); color: #ccc; }
+        tr:hover td { background: rgba(255,255,255,0.02); }
+        .dl-btn { display: inline-block; padding: 8px 18px; background: rgba(0,212,255,0.1); color: #00d4ff; border-radius: 6px; font-weight: 600; font-size: 0.85rem; }
+        .dl-btn:hover { background: rgba(0,212,255,0.2); }
+        .view-all { text-align: center; margin-top: 24px; }
+
+        footer { padding: 40px 0; border-top: 1px solid rgba(255,255,255,0.06); text-align: center; color: #444; font-size: 0.85rem; }
+
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 2.2rem; }
+            .device-grid { grid-template-columns: 1fr; }
+            .btn-secondary { margin-left: 0; margin-top: 10px; }
+        }
     </style>
 </head>
 <body>
     <header>
         <div class="container">
             <nav>
-                <div class="logo">MCUlinux</div>
-                <div>
+                <div class="logo">MCU<span>linux</span></div>
+                <div class="links">
                     <a href="#devices">Devices</a>
                     <a href="#download">Download</a>
                     <a href="flasher/">Flasher</a>
@@ -52,43 +76,38 @@
 
     <section class="hero">
         <div class="container">
-            <h1>Linux for ESP32-S3</h1>
-            <p>Lightweight musl-based Linux images for ESP32-S3 microcontrollers</p>
-            <a href="#download" class="btn">Download Latest</a>
-            <a href="flasher/" class="btn">Web Flasher</a>
+            <h1>Linux for <span>ESP32-S3</span></h1>
+            <p>Lightweight musl-based Linux images for ESP32-S3 microcontrollers. Small footprint, full power.</p>
+            <a href="#download" class="btn btn-primary">Download</a>
+            <a href="flasher/" class="btn btn-secondary">Web Flasher</a>
         </div>
     </section>
 
-    <section id="devices">
+    <section class="devices" id="devices">
         <div class="container">
-            <h2 style="text-align: center; margin-bottom: 30px;">Supported Devices</h2>
-            <div class="devices">
+            <h2 class="section-title">Supported Devices</h2>
+            <p class="section-sub">Three configurations for different needs</p>
+            <div class="device-grid">
                 <div class="device">
-                    <h3>r8n8</h3>
-                    <ul class="specs">
-                        <li><strong>PSRAM:</strong> 8MB</li>
-                        <li><strong>Flash:</strong> 8MB</li>
-                        <li><strong>Target:</strong> ESP32-S3</li>
-                        <li><strong>Status:</strong> Stable</li>
-                    </ul>
+                    <div class="device-name">r8n8</div>
+                    <div class="device-spec"><span class="label">PSRAM</span><span class="value">8 MB</span></div>
+                    <div class="device-spec"><span class="label">Flash</span><span class="value">8 MB</span></div>
+                    <div class="device-spec"><span class="label">Target</span><span class="value">ESP32-S3</span></div>
+                    <div class="device-spec"><span class="label">Status</span><span class="value">Stable</span></div>
                 </div>
                 <div class="device">
-                    <h3>r8n16</h3>
-                    <ul class="specs">
-                        <li><strong>PSRAM:</strong> 8MB</li>
-                        <li><strong>Flash:</strong> 16MB</li>
-                        <li><strong>Target:</strong> ESP32-S3</li>
-                        <li><strong>Status:</strong> Stable</li>
-                    </ul>
+                    <div class="device-name">r8n16</div>
+                    <div class="device-spec"><span class="label">PSRAM</span><span class="value">8 MB</span></div>
+                    <div class="device-spec"><span class="label">Flash</span><span class="value">16 MB</span></div>
+                    <div class="device-spec"><span class="label">Target</span><span class="value">ESP32-S3</span></div>
+                    <div class="device-spec"><span class="label">Status</span><span class="value">Stable</span></div>
                 </div>
                 <div class="device">
-                    <h3>r16n16</h3>
-                    <ul class="specs">
-                        <li><strong>PSRAM:</strong> 16MB</li>
-                        <li><strong>Flash:</strong> 16MB</li>
-                        <li><strong>Target:</strong> ESP32-S3</li>
-                        <li><strong>Status:</strong> Stable</li>
-                    </ul>
+                    <div class="device-name">r16n16</div>
+                    <div class="device-spec"><span class="label">PSRAM</span><span class="value">16 MB</span></div>
+                    <div class="device-spec"><span class="label">Flash</span><span class="value">16 MB</span></div>
+                    <div class="device-spec"><span class="label">Target</span><span class="value">ESP32-S3</span></div>
+                    <div class="device-spec"><span class="label">Status</span><span class="value">Stable</span></div>
                 </div>
             </div>
         </div>
@@ -96,46 +115,45 @@
 
     <section class="download" id="download">
         <div class="container">
-            <h2>Download</h2>
+            <h2 class="section-title">Download</h2>
+            <p class="section-sub">Pre-built images ready to flash</p>
             <table>
                 <thead>
                     <tr>
                         <th>Device</th>
                         <th>Version</th>
                         <th>Size</th>
-                        <th>Download</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
                         <td>r8n8</td>
                         <td>latest</td>
-                        <td>~2MB</td>
-                        <td><a href="https://github.com/mculinux/mculinux/releases/latest/download/r8n8.zip">Download</a></td>
+                        <td>~3.5 MB</td>
+                        <td><a href="https://github.com/mculinux/mculinux/releases/latest/download/r8n8.zip" class="dl-btn">Download</a></td>
                     </tr>
                     <tr>
                         <td>r8n16</td>
                         <td>latest</td>
-                        <td>~2MB</td>
-                        <td><a href="https://github.com/mculinux/mculinux/releases/latest/download/r8n16.zip">Download</a></td>
+                        <td>~3.5 MB</td>
+                        <td><a href="https://github.com/mculinux/mculinux/releases/latest/download/r8n16.zip" class="dl-btn">Download</a></td>
                     </tr>
                     <tr>
                         <td>r16n16</td>
                         <td>latest</td>
-                        <td>~2MB</td>
-                        <td><a href="https://github.com/mculinux/mculinux/releases/latest/download/r16n16.zip">Download</a></td>
+                        <td>~3.5 MB</td>
+                        <td><a href="https://github.com/mculinux/mculinux/releases/latest/download/r16n16.zip" class="dl-btn">Download</a></td>
                     </tr>
                 </tbody>
             </table>
-            <p style="margin-top: 20px; text-align: center;">
-                <a href="https://github.com/mculinux/mculinux/releases">View all releases</a>
-            </p>
+            <p class="view-all"><a href="https://github.com/mculinux/mculinux/releases">View all releases</a></p>
         </div>
     </section>
 
     <footer>
         <div class="container">
-            <p>&copy; 2026 MCUlinux. Licensed under GPL-3.0.</p>
+            <p>MCUlinux</p>
         </div>
     </footer>
 </body>
