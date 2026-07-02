@@ -1,13 +1,23 @@
 #!/bin/bash
 # MCUlinux Build Script
 # Builds ESP32-S3 Linux images for all supported devices
-# This script is self-contained (does not call upstream rebuild scripts)
+# Usage: ./build-all.sh [device|all]
+#
+# This script is self-contained:
+#   1. Builds musl cross-toolchain via crosstool-NG
+#   2. Builds kernel + rootfs via Buildroot
+#   3. Assembles flash images
+#   4. Tests images in QEMU
+
 set -e
+trap 'echo "ERROR at line $LINENO (exit $?)" >&2' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="/app/build"
 OUTPUT_DIR="/app/output"
 BUILDROOT_VER="xtensa-2025.08-fdpic"
+LOG_DIR="$OUTPUT_DIR/logs"
+QEMU="${QEMU:-/home/debian/mculinux/tools/qemu/qemu/bin/qemu-system-xtensa}"
 
 # Supported devices
 DEVICES=("r8n8" "r8n16" "r16n16")
@@ -15,32 +25,45 @@ DEVICES=("r8n8" "r8n16" "r16n16")
 # Parse arguments
 DEVICE="${1:-all}"
 
+timestamp() { date '+%H:%M:%S'; }
+log() { echo "[$(timestamp)] $*"; }
+
+mkdir -p "$BUILD_DIR" "$OUTPUT_DIR" "$LOG_DIR"
+
 echo "=========================================="
-echo "MCUlinux Builder"
+log "MCUlinux Builder"
 echo "=========================================="
-echo "Device: $DEVICE"
-echo "Buildroot: $BUILDROOT_VER (kernel 6.16)"
+log "Device: $DEVICE"
+log "Buildroot: $BUILDROOT_VER (kernel 6.16)"
+log "Output: $OUTPUT_DIR"
 echo ""
 
-mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
 # Set autoconf path
 export PATH="$(pwd)/autoconf-2.71/root/bin:$PATH"
 
-# dynconfig
+# ──────────────────────────────────────────────
+# Step 1: dynconfig
+# ──────────────────────────────────────────────
 if [ ! -f xtensa-dynconfig/esp32s3.so ]; then
-    echo "Building dynconfig..."
+    log "Building dynconfig..."
     git clone https://github.com/jcmvbkbc/xtensa-dynconfig -b original
     git clone https://github.com/jcmvbkbc/config-esp32s3 esp32s3
     make -C xtensa-dynconfig ORIG=1 CONF_DIR="$(pwd)" esp32s3.so
 fi
 export XTENSA_GNU_CONFIG="$(pwd)/xtensa-dynconfig/esp32s3.so"
+log "dynconfig ready"
 
-# toolchain
-if [ ! -x crosstool-NG/builds/xtensa-esp32s3-linux-muslfdpic/bin/xtensa-esp32s3-linux-muslfdpic-gcc ]; then
-    echo "Building toolchain (musl)..."
-    git clone https://github.com/jcmvbkbc/crosstool-NG.git -b xtensa-fdpic
+# ──────────────────────────────────────────────
+# Step 2: musl cross-toolchain
+# ──────────────────────────────────────────────
+TOOLCHAIN_PREFIX="crosstool-NG/builds/xtensa-esp32s3-linux-muslfdpic"
+TOOLCHAIN_GCC="$TOOLCHAIN_PREFIX/bin/xtensa-esp32s3-linux-muslfdpic-gcc"
+
+if [ ! -x "$TOOLCHAIN_GCC" ]; then
+    log "Building musl cross-toolchain (this takes 30-60 min)..."
+    git clone https://github.com/jcmvbkbc/crosstool-NG.git -b xtensa-fdpic 2>/dev/null || true
     pushd crosstool-NG
     mkdir -p samples/xtensa-esp32s3-linux-muslfdpic
     cat > samples/xtensa-esp32s3-linux-muslfdpic/crosstool.config << 'CTEOF'
@@ -76,68 +99,104 @@ CTEOF
     popd
 fi
 
-# kernel and rootfs
+# Verify toolchain
+log "Verifying toolchain..."
+for bin in gcc ar as ld; do
+    if [ ! -x "$TOOLCHAIN_PREFIX/bin/xtensa-esp32s3-linux-muslfdpic-$bin" ]; then
+        echo "FATAL: Toolchain binary missing: $bin"
+        exit 1
+    fi
+done
+log "Toolchain ready: $($TOOLCHAIN_GCC --version | head -1)"
+
+# Export for Buildroot
+export TOOLCHAIN_EXTERNAL_PATH="$(pwd)/$TOOLCHAIN_PREFIX"
+export TOOLCHAIN_EXTERNAL_PREFIX="xtensa-esp32s3-linux-muslfdpic"
+export BR2_TOOLCHAIN_EXTERNAL_PATH="$TOOLCHAIN_EXTERNAL_PATH"
+export BR2_TOOLCHAIN_EXTERNAL_CUSTOM_PREFIX="$TOOLCHAIN_EXTERNAL_PREFIX"
+
+# ──────────────────────────────────────────────
+# Step 3: Buildroot clone/update
+# ──────────────────────────────────────────────
 if [ ! -d buildroot ]; then
-    echo "Cloning buildroot ($BUILDROOT_VER, kernel 6.16)..."
+    log "Cloning Buildroot ($BUILDROOT_VER)..."
     git clone https://github.com/jcmvbkbc/buildroot -b "$BUILDROOT_VER"
 else
-    pushd buildroot
-    git pull
-    popd
+    log "Buildroot already cloned"
 fi
 
-# bootloader (ESP-Hosted)
+# ──────────────────────────────────────────────
+# Step 4: esp-hosted (bootloader)
+# ──────────────────────────────────────────────
 if [ ! -d esp-hosted ]; then
-    echo "Cloning esp-hosted..."
+    log "Cloning esp-hosted..."
     git clone https://github.com/jcmvbkbc/esp-hosted -b ipc-5.1.1
 fi
 
+# ──────────────────────────────────────────────
+# Build per-device
+# ──────────────────────────────────────────────
 build_device() {
     local device="$1"
-    local conf="$SCRIPT_DIR/${device}.conf"
+    local conf_file="$SCRIPT_DIR/${device}.conf"
 
-    if [ ! -f "$conf" ]; then
-        echo "Error: Config not found: $conf"
+    if [ ! -f "$conf_file" ]; then
+        echo "ERROR: Config not found: $conf_file"
         return 1
     fi
 
-    echo "=========================================="
-    echo "Building: $device"
-    echo "Config: $conf"
-    echo "=========================================="
-
     # Source device config
-    . "$conf"
+    source "$conf_file"
 
-    # Configure buildroot if not done
-    if [ ! -d "build-buildroot-${BUILDROOT_CONFIG}" ]; then
-        echo "Configuring buildroot..."
-        nice make -C buildroot O="$(pwd)/build-buildroot-${BUILDROOT_CONFIG}" "${BUILDROOT_CONFIG}_defconfig"
-        buildroot/utils/config --file "build-buildroot-${BUILDROOT_CONFIG}/.config" --set-str TOOLCHAIN_EXTERNAL_PATH "$(pwd)/crosstool-NG/builds/xtensa-esp32s3-linux-muslfdpic"
-        buildroot/utils/config --file "build-buildroot-${BUILDROOT_CONFIG}/.config" --set-str TOOLCHAIN_EXTERNAL_PREFIX '$(ARCH)-esp32s3-linux-muslfdpic'
-        buildroot/utils/config --file "build-buildroot-${BUILDROOT_CONFIG}/.config" --set-str TOOLCHAIN_EXTERNAL_CUSTOM_PREFIX '$(ARCH)-esp32s3-linux-muslfdpic'
+    echo ""
+    echo "=========================================="
+    log "Building: $device"
+    log "  Buildroot config: $BUILDROOT_CONFIG"
+    log "  Flash: ${FLASH_SIZE}, PSRAM: ${PSRAM_SIZE}"
+    echo "=========================================="
 
-        echo "Enabling additional packages (htop, nano)..."
-        buildroot/utils/config --file "build-buildroot-${BUILDROOT_CONFIG}/.config" --enable BR2_PACKAGE_HTOP
-        buildroot/utils/config --file "build-buildroot-${BUILDROOT_CONFIG}/.config" --enable BR2_PACKAGE_NANO
+    local BUILDROOT_OUT="build-buildroot-${BUILDROOT_CONFIG}"
+    local BUILD_LOG="$LOG_DIR/${device}-build.log"
 
-        # Enforce -Os (optimize for size) globally
-        echo "Enforcing -Os (optimize for size) for all packages..."
-        buildroot/utils/config --file "build-buildroot-${BUILDROOT_CONFIG}/.config" --enable BR2_OPTIM_S
+    # Configure Buildroot
+    if [ ! -d "$BUILDROOT_OUT" ]; then
+        log "Configuring Buildroot..."
+        nice make -C buildroot O="$(pwd)/$BUILDROOT_OUT" "${BUILDROOT_CONFIG}_defconfig" 2>&1 | tee "$BUILD_LOG"
+
+        # Apply external toolchain
+        buildroot/utils/config --file "$BUILDROOT_OUT/.config" --set-str TOOLCHAIN_EXTERNAL_PATH "$(pwd)/$TOOLCHAIN_PREFIX"
+        buildroot/utils/config --file "$BUILDROOT_OUT/.config" --set-str TOOLCHAIN_EXTERNAL_PREFIX '$(ARCH)-esp32s3-linux-muslfdpic'
+        buildroot/utils/config --file "$BUILDROOT_OUT/.config" --set-str TOOLCHAIN_EXTERNAL_CUSTOM_PREFIX '$(ARCH)-esp32s3-linux-muslfdpic'
+
+        # Enable packages
+        log "Enabling packages: htop, nano..."
+        buildroot/utils/config --file "$BUILDROOT_OUT/.config" --enable BR2_PACKAGE_HTOP
+        buildroot/utils/config --file "$BUILDROOT_OUT/.config" --enable BR2_PACKAGE_NANO
+
+        # Enforce -Os globally
+        log "Enforcing -Os (optimize for size)..."
+        buildroot/utils/config --file "$BUILDROOT_OUT/.config" --enable BR2_OPTIM_S
     fi
 
-    echo "Building kernel and rootfs..."
-    nice make -C buildroot O="$(pwd)/build-buildroot-${BUILDROOT_CONFIG}" -j$(nproc)
+    # Build
+    log "Building kernel + rootfs (this takes 10-20 min)..."
+    nice make -C buildroot O="$(pwd)/$BUILDROOT_OUT" -j$(nproc) 2>&1 | tee -a "$BUILD_LOG"
 
-    # Verify buildroot output
-    [ -f "build-buildroot-${BUILDROOT_CONFIG}/images/xipImage" ] || { echo "ERROR: xipImage not found"; return 1; }
-    [ -f "build-buildroot-${BUILDROOT_CONFIG}/images/rootfs.cramfs" ] || { echo "ERROR: rootfs.cramfs not found"; return 1; }
-    [ -f "build-buildroot-${BUILDROOT_CONFIG}/images/etc.jffs2" ] || { echo "ERROR: etc.jffs2 not found"; return 1; }
+    # Verify outputs
+    log "Verifying build outputs..."
+    for f in xipImage rootfs.cramfs etc.jffs2; do
+        if [ ! -f "$BUILDROOT_OUT/images/$f" ]; then
+            echo "ERROR: Missing: $BUILDROOT_OUT/images/$f"
+            return 1
+        fi
+        log "  $f: $(ls -lh "$BUILDROOT_OUT/images/$f" | awk '{print $5}')"
+    done
 
-    # Build bootloader if needed
-    if [ ! -f esp-hosted/esp_hosted_ng/esp/esp_driver/network_adapter/build/network_adapter.bin ]; then
-        echo "Building bootloader..."
-        pushd esp-hosted/esp_hosted_ng/esp/esp_driver
+    # Build bootloader
+    local BOOTLOADER_DIR="esp-hosted/esp_hosted_ng/esp/esp_driver"
+    if [ ! -f "$BOOTLOADER_DIR/network_adapter/build/network_adapter.bin" ]; then
+        log "Building bootloader..."
+        pushd "$BOOTLOADER_DIR"
         cmake .
         cd esp-idf
         . export.sh
@@ -148,54 +207,54 @@ build_device() {
         popd
     fi
 
+    # ──────────────────────────────────────────────
     # Create flash image
-    echo ""
-    echo "=========================================="
-    echo "Creating flash image for $device"
-    echo "=========================================="
-
-    FLASH_SIZE_MB=8
+    # ──────────────────────────────────────────────
+    log "Creating flash image..."
+    local FLASH_SIZE_MB
     case "$device" in
         r8n8)   FLASH_SIZE_MB=8 ;;
         r8n16)  FLASH_SIZE_MB=16 ;;
         r16n16) FLASH_SIZE_MB=16 ;;
     esac
-    FLASH_SIZE=$((FLASH_SIZE_MB * 1024 * 1024))
-    FLASH_IMAGE="$OUTPUT_DIR/${device}/flash_${device}.bin"
+    local FLASH_SIZE_BYTES=$((FLASH_SIZE_MB * 1024 * 1024))
+    local FLASH_IMAGE="$OUTPUT_DIR/${device}/flash_${device}.bin"
 
     mkdir -p "$OUTPUT_DIR/${device}"
 
-    # Create empty flash image filled with 0xFF
-    dd if=/dev/zero bs=1 count=$FLASH_SIZE 2>/dev/null | tr '\0' '\377' > "$FLASH_IMAGE"
+    # Create empty flash filled with 0xFF
+    dd if=/dev/zero bs=1 count=$FLASH_SIZE_BYTES 2>/dev/null | tr '\0' '\377' > "$FLASH_IMAGE"
 
-    # Write components at correct offsets
-    dd if=esp-hosted/esp_hosted_ng/esp/esp_driver/network_adapter/build/bootloader/bootloader.bin \
+    # Write components at offsets
+    dd if="$BOOTLOADER_DIR/network_adapter/build/bootloader/bootloader.bin" \
        of="$FLASH_IMAGE" bs=1 seek=0 conv=notrunc 2>/dev/null
-    dd if=esp-hosted/esp_hosted_ng/esp/esp_driver/network_adapter/build/partition_table/partition-table.bin \
+    dd if="$BOOTLOADER_DIR/network_adapter/build/partition_table/partition-table.bin" \
        of="$FLASH_IMAGE" bs=1 seek=$((0x8000)) conv=notrunc 2>/dev/null
-    dd if=esp-hosted/esp_hosted_ng/esp/esp_driver/network_adapter/build/network_adapter.bin \
+    dd if="$BOOTLOADER_DIR/network_adapter/build/network_adapter.bin" \
        of="$FLASH_IMAGE" bs=1 seek=$((0x10000)) conv=notrunc 2>/dev/null
-    dd if="build-buildroot-${BUILDROOT_CONFIG}/images/etc.jffs2" \
+    dd if="$BUILDROOT_OUT/images/etc.jffs2" \
        of="$FLASH_IMAGE" bs=1 seek=$((0xB0000)) conv=notrunc 2>/dev/null
-    dd if="build-buildroot-${BUILDROOT_CONFIG}/images/xipImage" \
+    dd if="$BUILDROOT_OUT/images/xipImage" \
        of="$FLASH_IMAGE" bs=1 seek=$((0x120000)) conv=notrunc 2>/dev/null
-    dd if="build-buildroot-${BUILDROOT_CONFIG}/images/rootfs.cramfs" \
+    dd if="$BUILDROOT_OUT/images/rootfs.cramfs" \
        of="$FLASH_IMAGE" bs=1 seek=$((0x480000)) conv=notrunc 2>/dev/null
 
-    # Copy individual images for reference
-    cp "build-buildroot-${BUILDROOT_CONFIG}/images/xipImage" "$OUTPUT_DIR/${device}/" 2>/dev/null || true
-    cp "build-buildroot-${BUILDROOT_CONFIG}/images/rootfs.cramfs" "$OUTPUT_DIR/${device}/" 2>/dev/null || true
-    cp "build-buildroot-${BUILDROOT_CONFIG}/images/etc.jffs2" "$OUTPUT_DIR/${device}/" 2>/dev/null || true
-    cp esp-hosted/esp_hosted_ng/esp/esp_driver/network_adapter/build/bootloader/bootloader.bin "$OUTPUT_DIR/${device}/" 2>/dev/null || true
-    cp esp-hosted/esp_hosted_ng/esp/esp_driver/network_adapter/build/partition_table/partition-table.bin "$OUTPUT_DIR/${device}/" 2>/dev/null || true
-    cp esp-hosted/esp_hosted_ng/esp/esp_driver/network_adapter/build/network_adapter.bin "$OUTPUT_DIR/${device}/" 2>/dev/null || true
+    log "Flash image: $FLASH_IMAGE ($(ls -lh "$FLASH_IMAGE" | awk '{print $5}'))"
 
-    echo "Build complete for $device"
-    echo "Flash image: $FLASH_IMAGE"
-    ls -lh "$FLASH_IMAGE"
+    # Copy individual images
+    for f in xipImage rootfs.cramfs etc.jffs2; do
+        cp "$BUILDROOT_OUT/images/$f" "$OUTPUT_DIR/${device}/" 2>/dev/null || true
+    done
+    for f in bootloader.bin partition-table.bin network_adapter.bin; do
+        find "$BOOTLOADER_DIR" -name "$f" -exec cp {} "$OUTPUT_DIR/${device}/" \; 2>/dev/null || true
+    done
+
+    log "Build complete for $device"
 }
 
-# Build
+# ──────────────────────────────────────────────
+# Execute builds
+# ──────────────────────────────────────────────
 if [ "$DEVICE" = "all" ]; then
     for dev in "${DEVICES[@]}"; do
         build_device "$dev"
@@ -204,9 +263,31 @@ else
     build_device "$DEVICE"
 fi
 
+# ──────────────────────────────────────────────
+# Step 5: QEMU boot test
+# ──────────────────────────────────────────────
 echo ""
 echo "=========================================="
-echo "Build complete!"
-echo "Output: $OUTPUT_DIR/"
+log "QEMU Boot Test"
+echo "=========================================="
+
+QEMU_SCRIPT="$SCRIPT_DIR/qemu-test.sh"
+if [ -x "$QEMU_SCRIPT" ]; then
+    if [ "$DEVICE" = "all" ]; then
+        for dev in "${DEVICES[@]}"; do
+            log "Testing $dev..."
+            QEMU="$QEMU" "$QEMU_SCRIPT" --device "$dev" 30 || true
+        done
+    else
+        QEMU="$QEMU" "$QEMU_SCRIPT" --device "$DEVICE" 30
+    fi
+else
+    log "QEMU test script not found, skipping"
+fi
+
+echo ""
+echo "=========================================="
+log "All done!"
+log "Output directory: $OUTPUT_DIR/"
 ls -la "$OUTPUT_DIR/"
 echo "=========================================="

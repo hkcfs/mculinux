@@ -65,7 +65,3 @@ MCUlinux is built on Alpine Linux, cross-compiled for Xtensa (ESP32-S3), and pac
 │  └─────┘ └─────┘ └─────┘ └─────┘      │
 └─────────────────────────────────────────┘
 ```
-
-## License
-
-GPL-3.0
