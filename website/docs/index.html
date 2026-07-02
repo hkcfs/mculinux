@@ -83,6 +83,8 @@
                     <li><a href="#packages">Packages</a></li>
                     <li><a href="#networking">Networking</a></li>
                     <li><a href="#serial">Serial Console</a></li>
+                    <li><a href="#qemu">QEMU Testing</a></li>
+                    <li><a href="#build">Build from Source</a></li>
                     <li><a href="#troubleshooting">Troubleshooting</a></li>
                 </ul>
             </nav>
@@ -92,7 +94,7 @@
 
                 <section id="getting-started">
                     <h2>Getting Started</h2>
-                    <p>MCUlinux is a lightweight musl-based Linux distribution for ESP32-S3 microcontrollers. It provides a familiar Linux environment with package management.</p>
+                    <p>MCUlinux is a lightweight musl-based Linux distribution for ESP32-S3 microcontrollers. It runs a real Linux kernel (6.16) with a musl libc userspace, giving you a familiar shell environment on bare metal.</p>
 
                     <div class="note">
                         <strong>Note:</strong> MCUlinux currently supports ESP32-S3 only.
@@ -166,12 +168,9 @@ esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 115200 \
 
                 <section id="networking">
                     <h2>Networking</h2>
-                    <h3>WiFi</h3>
-                    <pre><code>wpa_passphrase "SSID" "password" > /etc/wpa_supplicant.conf
-wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant.conf
-udhcpc -i wlan0
-
-ping -c 3 google.com</code></pre>
+                    <div class="warning">
+                        <strong>Note:</strong> WiFi support is planned for a future release. Currently MCUlinux boots to a serial shell only.
+                    </div>
                 </section>
 
                 <section id="serial">
@@ -180,6 +179,41 @@ ping -c 3 google.com</code></pre>
 screen /dev/ttyUSB0 115200
 
 # Default: root, no password</code></pre>
+                </section>
+
+                <section id="qemu">
+                    <h2>QEMU Testing</h2>
+                    <p>MCUlinux images are verified to boot in QEMU before release. You can test images yourself:</p>
+                    <pre><code># Install QEMU for Xtensa
+# Use ESP-IDF QEMU or build from jcmvbkbc/qemu-xtensa
+
+qemu-system-xtensa -M esp32s3 -nographic -m 8M \
+    -global driver=ssi_psram,property=is_octal,value=true \
+    -drive file=flash_r8n8.bin,if=mtd,format=raw</code></pre>
+                    <div class="note">
+                        <strong>Note:</strong> Always run QEMU with a timeout. The image will boot to a shell prompt and wait for input.
+                    </div>
+                    <pre><code># With timeout (30 seconds):
+timeout 30 qemu-system-xtensa -M esp32s3 -nographic -m 8M \
+    -global driver=ssi_psram,property=is_octal,value=true \
+    -drive file=flash_r8n8.bin,if=mtd,format=raw</code></pre>
+                </section>
+
+                <section id="build">
+                    <h2>Build from Source</h2>
+                    <p>MCUlinux is built using Docker and Buildroot:</p>
+                    <pre><code># Clone the repository
+git clone https://github.com/mculinux/mculinux.git
+cd mculinux
+
+# Build the Docker builder image
+docker build -t mculinux-builder docker/
+
+# Build everything (musl toolchain + Buildroot + images)
+bash build/build-all.sh</code></pre>
+                    <div class="note">
+                        <strong>Note:</strong> First build takes 1-2 hours. The musl toolchain compilation is the longest step.
+                    </div>
                 </section>
 
                 <section id="troubleshooting">
