@@ -4,43 +4,41 @@ services:
   builder:
     build:
       context: .
-      dockerfile: docker/Dockerfile.builder
+      dockerfile: docker/Dockerfile
+      args:
+        DOCKER_USER: ${USER:-builder}
+        DOCKER_USERID: ${UID:-1000}
     image: mculinux-builder
+    container_name: mculinux-builder
     volumes:
-      - ./mculinux-packages:/packages
-      - ./output:/output
-    working_dir: /workspace
+      - ./build:/app/build
+      - ./output:/app/output
+      - ./docker/build-scripts:/app/build-scripts
+    environment:
+      - KEEP=${KEEP:-}
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/ttyACM0:/dev/ttyACM0
+    working_dir: /app/build
+    stdin_open: true
+    tty: true
 
-  idf:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.idf
-    image: mculinux-idf
-    volumes:
-      - ./images:/images
-      - ./output:/output
-    working_dir: /workspace
+  build-all:
+    extends:
+      service: builder
+    command: ./build-all.sh all
 
-  qemu:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.qemu
-    image: mculinux-qemu
-    volumes:
-      - ./output:/output
-      - ./tests:/tests
-    working_dir: /workspace
-    privileged: true
-    network_mode: host
+  build-r8n8:
+    extends:
+      service: builder
+    command: ./build-all.sh r8n8
 
-  website:
-    image: nginx:alpine
-    ports:
-      - "8080:80"
-    volumes:
-      - ./website:/usr/share/nginx/html:ro
-    working_dir: /usr/share/nginx/html
+  build-r8n16:
+    extends:
+      service: builder
+    command: ./build-all.sh r8n16
 
-networks:
-  default:
-    name: mculinux
+  build-r16n16:
+    extends:
+      service: builder
+    command: ./build-all.sh r16n16

@@ -1,6 +1,7 @@
 # Build artifacts
 output/
-build/
+firmware/
+build/.wget-hsts
 *.o
 *.bin
 *.elf
@@ -29,3 +30,4 @@ __pycache__/
 # Temporary files
 *.tmp
 *.temp
+build/.wget-hsts
