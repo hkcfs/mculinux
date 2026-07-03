@@ -4,7 +4,10 @@ DEVICE ?= r8n8
 TIMEOUT ?= 30
 SCRIPTS := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))scripts
 
-all: build
+all: ## Build all devices (r8n8, r8n16, r16n16)
+	$(SCRIPTS)/build.sh r8n8
+	$(SCRIPTS)/build.sh r8n16
+	$(SCRIPTS)/build.sh r16n16
 
 help: ## Show available targets
 	@echo "MCUlinux Makefile"
@@ -31,8 +34,10 @@ test: ## Boot flash image in QEMU
 compress: ## Compare filesystem compression variants
 	$(SCRIPTS)/compress-test.sh
 
-clean: ## Clean output
+clean: ## Clean output and build caches
 	rm -rf output/
+	rm -f /tmp/rootfs_*.bin /tmp/flash_*.bin
+	@echo "Cleaned output and temp files"
 
 r8n8: ## Build r8n8 (8MB flash)
 	$(SCRIPTS)/build.sh r8n8
