@@ -1,40 +1,44 @@
-.PHONY: all build test qemu-test flash docker clean help
+.PHONY: all bootloader kernel image test compress build clean help
 
 DEVICE ?= r8n8
+TIMEOUT ?= 30
+SCRIPTS := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))scripts
 
 all: build
 
-help: ## Show this help
+help: ## Show available targets
+	@echo "MCUlinux Makefile"
+	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Devices: r8n8, r8n16, r16n16"
+	@echo "Example: make image DEVICE=r8n8"
 
-build: docker ## Build all device images
-	docker compose run --rm build-all
+build: bootloader kernel image test ## Full build (bootloader + kernel + image + test)
 
-build-device: docker ## Build specific device image (DEVICE=r8n8)
-	docker compose run --rm builder ./build-all.sh $(DEVICE)
+bootloader: ## Build WiFi firmware (network_adapter.bin)
+	$(SCRIPTS)/build-bootloader.sh --trimmed
 
-test: ## Run QEMU test
-	./qemu-test.sh $(DEVICE) 30
+kernel: ## Build kernel + rootfs via Buildroot
+	$(SCRIPTS)/build-kernel.sh
 
-flash: ## Flash device (requires esptool.py and device connected)
-	esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 2000000 \
-		write_flash 0x0 \
-		output/$(DEVICE)/xipImage \
-		output/$(DEVICE)/rootfs.cramfs \
-		output/$(DEVICE)/etc.jffs2
+image: ## Assemble flash image
+	$(SCRIPTS)/build-image.sh $(DEVICE)
 
-docker: ## Build Docker image
-	docker compose build
+test: ## Boot flash image in QEMU
+	$(SCRIPTS)/test-qemu.sh $(DEVICE) $(TIMEOUT)
 
-clean: ## Clean build artifacts
+compress: ## Compare filesystem compression variants
+	$(SCRIPTS)/compress-test.sh
+
+clean: ## Clean output
 	rm -rf output/
-	docker compose down --rmi local 2>/dev/null || true
 
-r8n8: docker ## Build r8n8 (8MB PSRAM + 8MB Flash)
-	docker compose run --rm builder ./build-all.sh r8n8
+r8n8: ## Build r8n8 (8MB flash)
+	$(SCRIPTS)/build.sh r8n8
 
-r8n16: docker ## Build r8n16 (8MB PSRAM + 16MB Flash)
-	docker compose run --rm builder ./build-all.sh r8n16
+r8n16: ## Build r8n16 (16MB flash)
+	$(SCRIPTS)/build.sh r8n16
 
-r16n16: docker ## Build r16n16 (16MB PSRAM + 16MB Flash)
-	docker compose run --rm builder ./build-all.sh r16n16
+r16n16: ## Build r16n16 (16MB flash)
+	$(SCRIPTS)/build.sh r16n16
