@@ -5,7 +5,7 @@ Everything we tried, what worked, what failed, and why.
 ## Table of Contents
 - [Current Status](#current-status)
 - [Squashfs Investigation](#squashfs-investigation)
-- [Squashfs真相: Not Actually Compiled](#squashfs真相-not-actually-compiled)
+- [Squashfs: Not Actually Compiled](#squashfs-not-actually-compiled)
 - [DWARFS Investigation](#dwarfs-investigation)
 - [Kernel Rebuild Failure](#kernel-rebuild-failure)
 - [Flash Layout Discovery](#flash-layout-discovery)
@@ -77,7 +77,7 @@ The kernel can only be built ONCE through Buildroot's full build system. Running
 
 ---
 
-## Squashfs真相: Not Actually Compiled
+## Squashfs: Not Actually Compiled
 
 ### Discovery
 After adding `CONFIG_SQUASHFS=y` to the kernel config, we assumed squashfs was supported. **It wasn't.**
