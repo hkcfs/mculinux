@@ -325,6 +325,53 @@ Status: FAILED
 
 ---
 
+## Test Evidence (Captured 2026-07-03)
+
+### QEMU Boot Output - All 3 Devices PASS
+
+**r8n8 (8MB flash):**
+```
+Linux version 6.16.0 (debian@004af392356c) (xtensa-esp32s3-linux-muslfdpic-gcc 14.0.1) #1 PREEMPT
+cramfs: linear cramfs image on mtd:rootfs appears to be 1372 KB in size
+VFS: Mounted root (cramfs filesystem) readonly on device 31:5.
+devtmpfs: mounted
+buildroot login:
+```
+
+**r8n16 (16MB flash):**
+```
+Linux version 6.16.0 (debian@004af392356c) (xtensa-esp32s3-linux-muslfdpic-gcc 14.0.1) #1 PREEMPT
+cramfs: linear cramfs image on mtd:rootfs appears to be 1372 KB in size
+VFS: Mounted root (cramfs filesystem) readonly on device 31:5.
+devtmpfs: mounted
+buildroot login:
+```
+
+**r16n16 (16MB flash):**
+```
+Linux version 6.16.0 (debian@004af392356c) (xtensa-esp32s3-linux-muslfdpic-gcc 14.0.1) #1 PREEMPT
+cramfs: linear cramfs image on mtd:rootfs appears to be 1372 KB in size
+VFS: Mounted root (cramfs filesystem) readonly on device 31:5.
+devtmpfs: mounted
+buildroot login:
+```
+
+### Image Sizes
+```
+output/r8n8/flash_r8n8.bin    8.0M   (8MB flash)
+output/r8n16/flash_r8n16.bin  16M    (16MB flash)
+output/r16n16/flash_r16n16.bin 16M   (16MB flash)
+```
+
+### Rootfs Comparison
+```
+rootfs.cramfs    4.3M   (full, doesn't fit in 3.5MB partition)
+rootfs.squashfs  2.7M   (generated, but kernel lacks squashfs support)
+rootfs_r8n8.cramfs 1.4M (stripped, fits in 3.5MB partition)
+```
+
+---
+
 ## Key Commands Reference
 
 ### Build Toolchain
