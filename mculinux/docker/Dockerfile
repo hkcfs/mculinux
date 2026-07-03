@@ -17,6 +17,7 @@ RUN apt-get update && apt-get -y install \
     git unzip ncurses-dev rsync zlib1g zlib1g-dev xz-utils \
     cmake wget bzip2 g++ python3 python3-dev python3-pip \
     python3.10-venv cpio bc virtualenv libusb-1.0-0 \
+    fakeroot libfakeroot \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/python3 /usr/bin/python
 
