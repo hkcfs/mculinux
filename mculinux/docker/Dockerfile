@@ -19,7 +19,8 @@ RUN apt-get update && apt-get -y install \
     python3.10-venv cpio bc virtualenv libusb-1.0-0 \
     fakeroot libfakeroot \
     && rm -rf /var/lib/apt/lists/* \
-    && ln -s /usr/bin/python3 /usr/bin/python
+    && ln -s /usr/bin/python3 /usr/bin/python \
+    && ln -sf /usr/lib/x86_64-linux-gnu/fakeroot/libfakeroot-sysv.so /usr/lib/x86_64-linux-gnu/libfakeroot.so
 
 WORKDIR /app
 

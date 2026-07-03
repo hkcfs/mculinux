@@ -25,8 +25,8 @@ fi
 
 # Run inside Docker
 sudo docker run --rm \
-  -v "$MCULINUX_DIR:/workspace" \
-  -w /workspace/build \
+  -v "$MCULINUX_DIR:/app" \
+  -w /app/build \
   mculinux-builder:latest \
   bash -c '
 set -e
