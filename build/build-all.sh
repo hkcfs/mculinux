@@ -82,7 +82,7 @@ CT_LINUX_DEVEL_BRANCH="xtensa-6.16-esp32"
 CT_ARCH_BINFMT_FDPIC=y
 CT_BINUTILS_SRC_DEVEL=y
 CT_BINUTILS_DEVEL_URL="https://github.com/jcmvbkbc/binutils-gdb-xtensa.git"
-CT_BINUTILS_DEVEL_BRANCH="xtensa-2.42-fdpic"
+CT_BINUTILS_DEVEL_BRANCH="xtensa-2.42-fdpic-musl"
 CT_BINUTILS_PLUGINS=y
 # CT_BINUTILS_RELRO is not set
 CT_MUSL_SRC_DEVEL=y
@@ -167,9 +167,12 @@ build_device() {
         buildroot/utils/config --file "$BUILDROOT_OUT/.config" --set-str TOOLCHAIN_EXTERNAL_PATH "$(pwd)/$TOOLCHAIN_PREFIX"
         buildroot/utils/config --file "$BUILDROOT_OUT/.config" --set-str TOOLCHAIN_EXTERNAL_PREFIX '$(ARCH)-esp32s3-linux-muslfdpic'
         buildroot/utils/config --file "$BUILDROOT_OUT/.config" --set-str TOOLCHAIN_EXTERNAL_CUSTOM_PREFIX '$(ARCH)-esp32s3-linux-muslfdpic'
+        buildroot/utils/config --file "$BUILDROOT_OUT/.config" --set-str BR2_TOOLCHAIN_HEADERS_AT_LEAST "6.16"
 
         # Enable packages
         log "Enabling packages: htop, nano..."
+        buildroot/utils/config --file "$BUILDROOT_OUT/.config" --enable BR2_PACKAGE_NCURSES
+        buildroot/utils/config --file "$BUILDROOT_OUT/.config" --enable BR2_PACKAGE_NCURSES_WIDE
         buildroot/utils/config --file "$BUILDROOT_OUT/.config" --enable BR2_PACKAGE_HTOP
         buildroot/utils/config --file "$BUILDROOT_OUT/.config" --enable BR2_PACKAGE_NANO
 
@@ -203,6 +206,12 @@ build_device() {
         cd ../network_adapter
         idf.py set-target esp32s3
         cp "$ESP_HOSTED_CONFIG" sdkconfig
+        # Override flash size to 16MB (rootfs.cramfs ~4.3MB doesn't fit in 8MB)
+        sed -i 's/CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y/# CONFIG_ESPTOOLPY_FLASHSIZE_8MB is not set/' sdkconfig
+        sed -i 's/# CONFIG_ESPTOOLPY_FLASHSIZE_16MB is not set/CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y/' sdkconfig
+        sed -i 's/CONFIG_ESPTOOLPY_FLASHSIZE="8MB"/CONFIG_ESPTOOLPY_FLASHSIZE="16MB"/' sdkconfig
+        # Use 16MB partition table
+        cp partition_table.esp32s3.16m partition_table.esp32s3
         idf.py build
         popd
     fi
@@ -211,12 +220,8 @@ build_device() {
     # Create flash image
     # ──────────────────────────────────────────────
     log "Creating flash image..."
-    local FLASH_SIZE_MB
-    case "$device" in
-        r8n8)   FLASH_SIZE_MB=8 ;;
-        r8n16)  FLASH_SIZE_MB=16 ;;
-        r16n16) FLASH_SIZE_MB=16 ;;
-    esac
+    # All devices use 16MB flash layout (rootfs.cramfs ~4.3MB doesn't fit in 8MB)
+    local FLASH_SIZE_MB=16
     local FLASH_SIZE_BYTES=$((FLASH_SIZE_MB * 1024 * 1024))
     local FLASH_IMAGE="$OUTPUT_DIR/${device}/flash_${device}.bin"
 
@@ -225,7 +230,7 @@ build_device() {
     # Create empty flash filled with 0xFF
     dd if=/dev/zero bs=1 count=$FLASH_SIZE_BYTES 2>/dev/null | tr '\0' '\377' > "$FLASH_IMAGE"
 
-    # Write components at offsets
+    # Write components at 16MB layout offsets
     dd if="$BOOTLOADER_DIR/network_adapter/build/bootloader/bootloader.bin" \
        of="$FLASH_IMAGE" bs=1 seek=0 conv=notrunc 2>/dev/null
     dd if="$BOOTLOADER_DIR/network_adapter/build/partition_table/partition-table.bin" \
@@ -237,7 +242,7 @@ build_device() {
     dd if="$BUILDROOT_OUT/images/xipImage" \
        of="$FLASH_IMAGE" bs=1 seek=$((0x120000)) conv=notrunc 2>/dev/null
     dd if="$BUILDROOT_OUT/images/rootfs.cramfs" \
-       of="$FLASH_IMAGE" bs=1 seek=$((0x480000)) conv=notrunc 2>/dev/null
+       of="$FLASH_IMAGE" bs=1 seek=$((0x600000)) conv=notrunc 2>/dev/null
 
     log "Flash image: $FLASH_IMAGE ($(ls -lh "$FLASH_IMAGE" | awk '{print $5}'))"
 

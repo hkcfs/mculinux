@@ -72,7 +72,7 @@ CT_LINUX_DEVEL_BRANCH="xtensa-6.16-esp32"
 CT_ARCH_BINFMT_FDPIC=y
 CT_BINUTILS_SRC_DEVEL=y
 CT_BINUTILS_DEVEL_URL="https://github.com/jcmvbkbc/binutils-gdb-xtensa.git"
-CT_BINUTILS_DEVEL_BRANCH="xtensa-2.42-fdpic"
+CT_BINUTILS_DEVEL_BRANCH="xtensa-2.42-fdpic-musl"
 CT_BINUTILS_PLUGINS=y
 # CT_BINUTILS_RELRO is not set
 CT_MUSL_SRC_DEVEL=y
