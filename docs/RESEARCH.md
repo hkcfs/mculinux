@@ -5,9 +5,12 @@ Everything we tried, what worked, what failed, and why.
 ## Table of Contents
 - [Current Status](#current-status)
 - [Squashfs Investigation](#squashfs-investigation)
+- [Squashfs真相: Not Actually Compiled](#squashfs真相-not-actually-compiled)
+- [DWARFS Investigation](#dwarfs-investigation)
 - [Kernel Rebuild Failure](#kernel-rebuild-failure)
 - [Flash Layout Discovery](#flash-layout-discovery)
 - [Stripped Cramfs Solution](#stripped-cramfs-solution)
+- [XIP for Rootfs?](#xip-for-rootfs)
 - [What Works Now](#what-works-now)
 - [What Failed](#what-failed)
 - [Remaining Limitations](#remaining-limitations)
@@ -71,6 +74,94 @@ The kernel can only be built ONCE through Buildroot's full build system. Running
 - Buildroot patches the kernel source during extraction
 - The cross-compiler environment setup is complex and happens during the first build
 - Subsequent rebuilds don't fully recreate this environment
+
+---
+
+## Squashfs真相: Not Actually Compiled
+
+### Discovery
+After adding `CONFIG_SQUASHFS=y` to the kernel config, we assumed squashfs was supported. **It wasn't.**
+
+### Evidence
+```
+# Squashfs objects exist (compiled at 07:48)
+fs/squashfs/super.o   Modify: 2026-07-03 07:48:30
+
+# But xipImage was built BEFORE (at 06:59)
+images/xipImage       Modify: 2026-07-03 06:59:59
+
+# Squashfs objects NOT linked into final kernel
+nm vmlinux | grep squash  →  (empty)
+nm fs/built-in.a | grep squash  →  (empty)
+```
+
+### What Happened
+1. Original kernel built at 06:59 WITHOUT squashfs (cramfs only)
+2. At 07:33 we added `CONFIG_SQUASHFS=y` to .config
+3. A partial rebuild compiled squashfs objects (07:48)
+4. But the final link step (xipImage) was NOT re-run
+5. **xipImage has no squashfs support**
+
+### Why QEMU Failed with Squashfs
+When we put rootfs.squashfs at 0x480000:
+- Kernel tries to mount it
+- Finds no squashfs magic bytes (kernel lacks squashfs code)
+- Falls through to cramfs check
+- cramfs check finds squashfs data → fails
+- "Bad ram pointer" error
+
+### Fix Required
+Need to rebuild kernel with squashfs. But `linux-dirclean` + rebuild fails with atomctl error.
+
+---
+
+## DWARFS Investigation
+
+### What is DWARFS?
+[DWARFS](https://github.com/mhx/dwarfs) is a high-performance compressed read-only filesystem by Marcus Hernanz. It uses modern compression algorithms (zstd, lzma, etc.) and has very good compression ratios.
+
+### Compression Comparison
+| Filesystem | Compression | Ratio | Speed | Kernel Support |
+|------------|-------------|-------|-------|----------------|
+| cramfs | zlib | 1.37x | Fast | Built-in |
+| squashfs | zlib | 1.6x | Medium | Config option |
+| squashfs | zstd | 2.0x | Medium | Config option |
+| DWARFS | zstd | 2.5-3.0x | Slow mount | **Not in kernel** |
+
+### Would DWARFS Help?
+**Yes, dramatically.** With 2.5-3.0x compression:
+- 5.9MB target → ~2.0-2.4MB DWARFS image
+- Fits easily in 3.5MB partition
+- Could include ALL packages (htop, nano, wifi, ssh)
+
+### Why We Can't Use DWARFS
+
+**Problem 1: Not in Linux kernel**
+DWARFS is a FUSE-based filesystem. It requires:
+- FUSE kernel module (`CONFIG_FUSE=y`)
+- DWARFS FUSE daemon running in userspace
+- This means DWARFS runs in userspace, not kernel space
+
+**Problem 2: FUSE not enabled in ESP32-S3 kernel**
+```
+# CONFIG_FUSE_FS is not set
+```
+FUSE is not compiled into our kernel. Even if it were, FUSE adds overhead.
+
+**Problem 3: Userspace daemon required**
+DWARFS needs a daemon process to serve filesystem requests. On a microcontroller with 8MB PSRAM, this wastes RAM and CPU.
+
+**Problem 4: Kernel rebuild required**
+To enable FUSE and DWARFS, we need to rebuild the kernel. The kernel rebuild is broken (atomctl error).
+
+### DWARFS vs Squashfs vs cramfs for ESP32-S3
+
+For embedded systems like ESP32-S3:
+- **cramfs**: Simple, fast, built-in, but poor compression
+- **squashfs**: Better compression, kernel-native, but needs rebuild
+- **DWARFS**: Best compression, but FUSE overhead makes it unsuitable
+
+**Best choice for MCUlinux: squashfs** (if we can rebuild kernel)
 
 ---
 
@@ -198,6 +289,52 @@ MKCRAMFS=build-buildroot-esp32s3_devkit_c1_8m/host/bin/mkcramfs
 - `bash`
 - `coreutils`
 - Basic system files
+
+---
+
+## XIP for Rootfs?
+
+### Question
+Are we using XIP (Execute In Place) for the rootfs as well as the kernel?
+
+### Answer: No
+XIP is only used for the kernel (`xipImage`). The rootfs is a standard cramfs image loaded from flash into RAM.
+
+### Evidence
+```
+# Kernel: XIP enabled
+CONFIG_XIP_KERNEL=y
+CONFIG_MTD_XIP=y
+
+# Rootfs: standard cramfs (loaded from flash, not executed)
+root=mtd:rootfs   (kernel command line)
+cramfs: checking physical address 0x42480000 for linear cramfs image
+VFS: Mounted root (cramfs filesystem) readonly on device 31:5.
+```
+
+### How It Works
+1. **Kernel (XIP)**: xipImage is mapped directly to flash address 0x42120000
+   - Code executes directly from flash (no RAM copy)
+   - Saves RAM but flash must be memory-mapped
+   - `CONFIG_XIP_DATA_ADDR=0x3d800000` (data in PSRAM)
+
+2. **Rootfs (cramfs)**: Read from flash into RAM on boot
+   - cramfs image at flash offset 0x480000
+   - Kernel reads it into RAM during mount
+   - Then accesses it from RAM (not flash)
+
+### Why Not XIP for Rootfs?
+- Rootfs contains data files, not executable code
+- XIP only makes sense for code you execute
+- cramfs/squashfs are designed for compressed storage, not execution
+- Rootfs needs to be writable (even if currently read-only)
+
+### Could We Use XIP for Rootfs?
+Technically yes, but:
+- Would need a custom filesystem format
+- No compression (XIP requires flat mapping)
+- Would waste flash space
+- Not worth it for data files
 
 ---
 
