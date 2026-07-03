@@ -9,6 +9,9 @@ all: ## Build all devices (r8n8, r8n16, r16n16)
 	$(SCRIPTS)/build.sh r8n16
 	$(SCRIPTS)/build.sh r16n16
 
+setup: ## One-time setup (toolchain, Buildroot, esp-hosted)
+	$(SCRIPTS)/setup.sh
+
 help: ## Show available targets
 	@echo "MCUlinux Makefile"
 	@echo ""
