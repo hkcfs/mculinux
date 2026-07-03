@@ -197,7 +197,8 @@ build_device() {
 
     # Build bootloader
     local BOOTLOADER_DIR="esp-hosted/esp_hosted_ng/esp/esp_driver"
-    if [ ! -f "$BOOTLOADER_DIR/network_adapter/build/network_adapter.bin" ]; then
+    local BOOT_BUILD="$BOOTLOADER_DIR/network_adapter/build"
+    if [ ! -f "$BOOT_BUILD/network_adapter.bin" ]; then
         log "Building bootloader..."
         pushd "$BOOTLOADER_DIR"
         cmake .
@@ -205,13 +206,20 @@ build_device() {
         . export.sh
         cd ../network_adapter
         idf.py set-target esp32s3
-        cp "$ESP_HOSTED_CONFIG" sdkconfig
-        # Override flash size to 16MB (rootfs.cramfs ~4.3MB doesn't fit in 8MB)
-        sed -i 's/CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y/# CONFIG_ESPTOOLPY_FLASHSIZE_8MB is not set/' sdkconfig
-        sed -i 's/# CONFIG_ESPTOOLPY_FLASHSIZE_16MB is not set/CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y/' sdkconfig
-        sed -i 's/CONFIG_ESPTOOLPY_FLASHSIZE="8MB"/CONFIG_ESPTOOLPY_FLASHSIZE="16MB"/' sdkconfig
-        # Use 16MB partition table
-        cp partition_table.esp32s3.16m partition_table.esp32s3
+        cp sdkconfig.esp32s3 sdkconfig
+        # Override flash size to match device
+        local FLASH_CFG
+        case "$device" in
+            r8n8)   FLASH_CFG="8MB" ;;
+            *)      FLASH_CFG="16MB" ;;
+        esac
+        sed -i "s/CONFIG_ESPTOOLPY_FLASHSIZE_.*=y/# CONFIG_ESPTOOLPY_FLASHSIZE_8MB is not set/" sdkconfig
+        sed -i "s/# CONFIG_ESPTOOLPY_FLASHSIZE_${FLASH_CFG} is not set/CONFIG_ESPTOOLPY_FLASHSIZE_${FLASH_CFG}=y/" sdkconfig
+        sed -i "s/CONFIG_ESPTOOLPY_FLASHSIZE=\".*\"/CONFIG_ESPTOOLPY_FLASHSIZE=\"${FLASH_CFG}\"/" sdkconfig
+        # Use matching partition table
+        if [ "$FLASH_CFG" = "16MB" ] && [ -f "partition_table.esp32s3.16m" ]; then
+            cp partition_table.esp32s3.16m partition_table.esp32s3
+        fi
         idf.py build
         popd
     fi
@@ -220,8 +228,13 @@ build_device() {
     # Create flash image
     # ──────────────────────────────────────────────
     log "Creating flash image..."
-    # All devices use 16MB flash layout (rootfs.cramfs ~4.3MB doesn't fit in 8MB)
-    local FLASH_SIZE_MB=16
+    # Kernel DTB hardcodes partition layout: rootfs at 0x480000, 3.5MB max
+    # All devices use same layout; r8n8=8MB flash, r8n16/r16n16=16MB flash
+    local FLASH_SIZE_MB
+    case "$device" in
+        r8n8)   FLASH_SIZE_MB=8 ;;
+        *)      FLASH_SIZE_MB=16 ;;
+    esac
     local FLASH_SIZE_BYTES=$((FLASH_SIZE_MB * 1024 * 1024))
     local FLASH_IMAGE="$OUTPUT_DIR/${device}/flash_${device}.bin"
 
@@ -230,7 +243,7 @@ build_device() {
     # Create empty flash filled with 0xFF
     dd if=/dev/zero bs=1 count=$FLASH_SIZE_BYTES 2>/dev/null | tr '\0' '\377' > "$FLASH_IMAGE"
 
-    # Write components at 16MB layout offsets
+    # Write components (kernel DTB partition table: rootfs at 0x480000)
     dd if="$BOOTLOADER_DIR/network_adapter/build/bootloader/bootloader.bin" \
        of="$FLASH_IMAGE" bs=1 seek=0 conv=notrunc 2>/dev/null
     dd if="$BOOTLOADER_DIR/network_adapter/build/partition_table/partition-table.bin" \
@@ -241,8 +254,30 @@ build_device() {
        of="$FLASH_IMAGE" bs=1 seek=$((0xB0000)) conv=notrunc 2>/dev/null
     dd if="$BUILDROOT_OUT/images/xipImage" \
        of="$FLASH_IMAGE" bs=1 seek=$((0x120000)) conv=notrunc 2>/dev/null
-    dd if="$BUILDROOT_OUT/images/rootfs.cramfs" \
-       of="$FLASH_IMAGE" bs=1 seek=$((0x600000)) conv=notrunc 2>/dev/null
+    # Stripped cramfs at 0x480000 (must be < 3.5MB to fit kernel DTB partition)
+    local CRAMFS_SIZE=$(stat -c%s "$BUILDROOT_OUT/images/rootfs.cramfs")
+    if [ "$CRAMFS_SIZE" -gt 3670016 ]; then
+        log "WARNING: rootfs.cramfs ($CRAMFS_SIZE bytes) > 3.5MB partition, stripping..."
+        local STRIPPED_DIR="/tmp/mculinux-stripped-rootfs"
+        local TARGET_DIR="$BUILDROOT_OUT/target"
+        rm -rf "$STRIPPED_DIR"
+        cp -a "$TARGET_DIR" "$STRIPPED_DIR"
+        rm -f "$STRIPPED_DIR/usr/sbin/wpa_supplicant" "$STRIPPED_DIR/usr/sbin/dropbear"*
+        rm -f "$STRIPPED_DIR/usr/sbin/iw"
+        rm -f "$STRIPPED_DIR/usr/lib/libncurses"* "$STRIPPED_DIR/usr/lib/libform"*
+        rm -f "$STRIPPED_DIR/usr/lib/libmenu"* "$STRIPPED_DIR/usr/lib/libpanel"*
+        rm -f "$STRIPPED_DIR/usr/lib/libnl"*
+        rm -rf "$STRIPPED_DIR/usr/lib/terminfo" "$STRIPPED_DIR/usr/share/ncurses"
+        rm -f "$STRIPPED_DIR/usr/bin/htop" "$STRIPPED_DIR/usr/bin/nano"
+        local STRIPPED_CRAMFS="/tmp/rootfs_stripped.cramfs"
+        find "$STRIPPED_DIR" -name ".*" -delete 2>/dev/null || true
+        "$BUILDROOT_OUT/host/bin/mkcramfs" -q "$STRIPPED_DIR" "$STRIPPED_CRAMFS"
+        log "  Stripped cramfs: $(ls -lh "$STRIPPED_CRAMFS" | awk '{print $5}')"
+        dd if="$STRIPPED_CRAMFS" of="$FLASH_IMAGE" bs=1 seek=$((0x480000)) conv=notrunc 2>/dev/null
+    else
+        dd if="$BUILDROOT_OUT/images/rootfs.cramfs" \
+           of="$FLASH_IMAGE" bs=1 seek=$((0x480000)) conv=notrunc 2>/dev/null
+    fi
 
     log "Flash image: $FLASH_IMAGE ($(ls -lh "$FLASH_IMAGE" | awk '{print $5}'))"
 

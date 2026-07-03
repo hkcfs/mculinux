@@ -4,6 +4,15 @@ firmware/
 build/.cache/
 build/.espressif/
 build/.wget-hsts
+build/buildroot/
+build/crosstool-NG/
+build/esp-hosted/
+build/esp32s3/
+build/xtensa-dynconfig/
+build/autoconf-*/
+build/squashfs_fragment.cfg
+build/build-buildroot-*/
+build/linux-*src/
 *.o
 *.bin
 *.elf
