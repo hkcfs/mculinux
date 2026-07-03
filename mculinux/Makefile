@@ -1,8 +1,6 @@
-.PHONY: all build build-device test qemu-test flash docker clean help
+.PHONY: all build test qemu-test flash docker clean help
 
 DEVICE ?= r8n8
-VERSION ?= 0.1.0
-KEEP ?=
 
 all: build
 
@@ -15,11 +13,8 @@ build: docker ## Build all device images
 build-device: docker ## Build specific device image (DEVICE=r8n8)
 	docker compose run --rm builder ./build-all.sh $(DEVICE)
 
-test: ## Run QEMU tests (requires Docker)
-	docker compose run --rm builder ./qemu-test.sh $(DEVICE) 30
-
-qemu-test: ## Run QEMU test locally (no Docker, requires qemu-system-xtensa in PATH)
-	./build/qemu-test.sh $(DEVICE) 30
+test: ## Run QEMU test
+	./qemu-test.sh $(DEVICE) 30
 
 flash: ## Flash device (requires esptool.py and device connected)
 	esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 2000000 \
@@ -35,7 +30,6 @@ clean: ## Clean build artifacts
 	rm -rf output/
 	docker compose down --rmi local 2>/dev/null || true
 
-# Individual device targets
 r8n8: docker ## Build r8n8 (8MB PSRAM + 8MB Flash)
 	docker compose run --rm builder ./build-all.sh r8n8
 

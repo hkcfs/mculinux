@@ -5,7 +5,8 @@
 
 set -e
 
-ESP_DRIVER="/home/debian/mculinux/build/esp-hosted/esp_hosted_ng/esp/esp_driver"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ESP_DRIVER="$SCRIPT_DIR/esp-hosted/esp_hosted_ng/esp/esp_driver"
 USE_TRIMMED="${1:---trimmed}"
 
 echo "=========================================="

@@ -1,24 +1,23 @@
 # Build artifacts
-output/
+mculinux/output/
 firmware/
-build/.cache/
-build/.espressif/
-build/.wget-hsts
-build/buildroot/
-build/crosstool-NG/
-build/esp-hosted/
-build/esp32s3/
-build/xtensa-dynconfig/
-build/autoconf-*/
-build/squashfs_fragment.cfg
-build/build-buildroot-*/
-build/linux-*src/
+mculinux/build/.cache/
+mculinux/build/.espressif/
+mculinux/build/.wget-hsts
+mculinux/build/buildroot/
+mculinux/build/crosstool-NG/
+mculinux/build/esp-hosted/
+mculinux/build/esp32s3/
+mculinux/build/xtensa-dynconfig/
+mculinux/build/autoconf-*/
+mculinux/build/build-buildroot-*/
+mculinux/build/linux-*src/
 *.o
 *.bin
 *.elf
 
 # Tools (downloaded binaries)
-tools/
+mculinux/tools/
 
 # Docker
 docker-compose.override.yml
@@ -44,4 +43,3 @@ __pycache__/
 # Temporary files
 *.tmp
 *.temp
-build/.wget-hsts

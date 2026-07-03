@@ -17,7 +17,7 @@ BUILD_DIR="/app/build"
 OUTPUT_DIR="/app/output"
 BUILDROOT_VER="xtensa-2025.08-fdpic"
 LOG_DIR="$OUTPUT_DIR/logs"
-QEMU="${QEMU:-/home/debian/mculinux/tools/qemu/qemu/bin/qemu-system-xtensa}"
+QEMU="${QEMU:-$(dirname "$SCRIPT_DIR")/tools/qemu/qemu/bin/qemu-system-xtensa}"
 
 # Supported devices
 DEVICES=("r8n8" "r8n16" "r16n16")

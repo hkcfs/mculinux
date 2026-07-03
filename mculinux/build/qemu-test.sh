@@ -12,7 +12,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-QEMU="${QEMU:-/home/debian/mculinux/tools/qemu/qemu/bin/qemu-system-xtensa}"
+QEMU="${QEMU:-$(dirname "$SCRIPT_DIR")/tools/qemu/qemu/bin/qemu-system-xtensa}"
 
 # Parse arguments
 FLASH_IMAGE=""

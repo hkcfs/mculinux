@@ -4,13 +4,13 @@ on:
   push:
     branches: [main]
     paths:
-      - 'build/**'
-      - 'docker/**'
+      - 'mculinux/build/**'
+      - 'mculinux/docker/**'
   pull_request:
     branches: [main]
     paths:
-      - 'build/**'
-      - 'docker/**'
+      - 'mculinux/build/**'
+      - 'mculinux/docker/**'
   release:
     types: [published]
 
@@ -36,7 +36,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: docker/Dockerfile
+          file: mculinux/docker/Dockerfile
           push: false
           tags: mculinux-builder:latest
           cache-from: type=gha
@@ -45,8 +45,8 @@ jobs:
       - name: Build firmware image
         run: |
           docker run --rm \
-            -v ${{ github.workspace }}/build:/app/build \
-            -v ${{ github.workspace }}/output:/app/output \
+            -v ${{ github.workspace }}/mculinux/build:/app/build \
+            -v ${{ github.workspace }}/mculinux/output:/app/output \
             mculinux-builder:latest \
             bash -c "chmod +x /app/build/build-all.sh && cd /app/build && ./build-all.sh ${{ matrix.device }}"
 
@@ -54,7 +54,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: image-${{ matrix.device }}
-          path: output/${{ matrix.device }}/
+          path: mculinux/output/${{ matrix.device }}/
           retention-days: 30
 
   test-images:
@@ -72,7 +72,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: image-${{ matrix.device }}
-          path: output/${{ matrix.device }}/
+          path: mculinux/output/${{ matrix.device }}/
 
       - name: Run QEMU test
         run: |
@@ -83,7 +83,7 @@ jobs:
             -nographic \
             -m 8M \
             -global driver=ssi_psram,property=is_octal,value=true \
-            -drive file=output/${{ matrix.device }}/flash_${{ matrix.device }}.bin,if=mtd,format=raw \
+            -drive file=mculinux/output/${{ matrix.device }}/flash_${{ matrix.device }}.bin,if=mtd,format=raw \
             2>&1 | tee qemu-output.txt || true
           if grep -q "Linux version" qemu-output.txt; then
             echo "QEMU TEST PASSED: Linux kernel booted"
@@ -105,16 +105,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: image-${{ matrix.device }}
-          path: output/${{ matrix.device }}/
+          path: mculinux/output/${{ matrix.device }}/
 
       - name: Create release package
         run: |
-          cd output/${{ matrix.device }}
+          cd mculinux/output/${{ matrix.device }}
           zip -r ${{ matrix.device }}.zip .
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
-          files: output/${{ matrix.device }}/${{ matrix.device }}.zip
+          files: mculinux/output/${{ matrix.device }}/${{ matrix.device }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
