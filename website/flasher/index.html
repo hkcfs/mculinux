@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MCUlinux Flasher</title>
+    <meta name="description" content="Flash MCUlinux to ESP32-S3 directly from the browser using Web Serial.">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #e0e0e0; background: #0a0a0f; min-height: 100vh; }
@@ -170,10 +171,9 @@ esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 460800 \
             btnErase.disabled = false;
         });
 
-        // ESP32-S3 ROM bootloader protocol
         const ESP_FLASH_IMAGE_TYPE = 0;
-        const ESP_FLASH_SIZE = 0; // auto
-        const ESP_FLASH_FREQ = 0; // auto
+        const ESP_FLASH_SIZE = 0;
+        const ESP_FLASH_FREQ = 0;
 
         class ESPFlasher {
             constructor() {
@@ -221,15 +221,14 @@ esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 460800 \
 
             async sendCommand(cmd, data = new Uint8Array(0), checksum = 0) {
                 const frame = new Uint8Array(7 + data.length);
-                frame[0] = 0x02; // command
+                frame[0] = 0x02;
                 frame[1] = cmd;
                 frame[2] = (data.length >> 8) & 0xFF;
                 frame[3] = data.length & 0xFF;
                 frame[4] = checksum & 0xFF;
                 frame[5] = (checksum >> 8) & 0xFF;
-                // direction = request
                 frame[5] |= 0x80;
-                frame[6] = 0; // header checksum
+                frame[6] = 0;
                 for (let i = 0; i < 6; i++) frame[6] ^= frame[i];
                 frame.set(data, 7);
                 await this.writer.write(this.slipEncode(frame));
@@ -243,7 +242,6 @@ esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 460800 \
                     const { value, done } = await this.reader.read();
                     if (done) break;
                     chunks.push(value);
-                    // Check for complete response
                     const all = this.slipDecode(this.concatBuffers(chunks));
                     if (all.length >= 8 && all[0] === 0x01) {
                         const len = (all[2] << 8) | all[3];
@@ -263,11 +261,9 @@ esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 460800 \
             }
 
             async sync() {
-                // Send sync command
                 const syncData = new Uint8Array([0x08, 0x24, 0x3F, 0x24, 0x20, 0x18, 0x20, 0x3F, 0x3F, 0x20, 0x3F, 0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
                 await this.sendCommand(0x08, syncData);
                 const resp = await this.readResponse();
-                // Read additional data to clear buffer
                 try { await this.readResponse(500); } catch(e) {}
                 return resp !== null;
             }
@@ -283,7 +279,6 @@ esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 460800 \
             }
 
             async eraseFlash(size) {
-                // SPI flash erase sequence
                 const ERASE_CHIP = 0xD8;
                 const data = new Uint8Array([ERASE_CHIP, 0x00, 0x00, 0x00]);
                 const checksum = data.reduce((a, b) => a ^ b, 0);
@@ -300,29 +295,21 @@ esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 460800 \
                     const block = data.slice(start, end);
                     const addr = offset + start;
 
-                    // Compressed write header
                     const header = new Uint8Array(16);
-                    // direction = request
                     header[0] = 0x02;
-                    // command = flash data (0x03)
                     header[1] = 0x03;
-                    // size
                     header[2] = (block.length >> 8) & 0xFF;
                     header[3] = block.length & 0xFF;
-                    // address
                     header[4] = addr & 0xFF;
                     header[5] = (addr >> 8) & 0xFF;
                     header[6] = (addr >> 16) & 0xFF;
                     header[7] = (addr >> 24) & 0xFF;
-                    // sequence number
                     header[8] = i & 0xFF;
                     header[9] = (i >> 8) & 0xFF;
                     header[10] = (i >> 16) & 0xFF;
                     header[11] = (i >> 24) & 0xFF;
-                    // checksum (set to 0 for simplicity)
                     header[12] = 0;
                     header[13] = 0;
-                    // direction indicator
                     header[14] = 0;
                     header[15] = 0;
 

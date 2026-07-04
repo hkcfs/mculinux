@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MCUlinux - Linux for ESP32-S3</title>
-    <meta name="description" content="Lightweight Linux images for ESP32-S3 microcontrollers. musl-based, with htop, nano, WiFi, and QEMU support.">
+    <meta name="description" content="Linux on a microcontroller. ESP32-S3 boots mainline Linux 6.16 in ~5 seconds. No MMU, no SD card, no Linux board.">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #e0e0e0; background: #0a0a0f; }
@@ -77,7 +77,7 @@
     <section class="hero">
         <div class="container">
             <h1>Linux for <span>ESP32-S3</span></h1>
-            <p>Lightweight musl-based Linux images for ESP32-S3 microcontrollers. Small footprint, full power.</p>
+            <p>Linux on a microcontroller. ESP32-S3 boots mainline Linux 6.16 in ~5 seconds. No MMU, no SD card, no Linux board &mdash; just a soldering iron and a serial port.</p>
             <a href="#download" class="btn btn-primary">Download</a>
             <a href="flasher/" class="btn btn-secondary">Web Flasher</a>
         </div>
@@ -89,21 +89,21 @@
             <p class="section-sub">Optimized for size and performance on ESP32-S3</p>
             <div class="device-grid">
                 <div class="device">
-                    <div class="device-name">musl libc</div>
-                    <div class="device-spec"><span class="label">libc</span><span class="value">musl 1.2.5</span></div>
-                    <div class="device-spec"><span class="label">Kernel</span><span class="value">Linux 6.16</span></div>
-                    <div class="device-spec"><span class="label">Architecture</span><span class="value">Xtensa FDPIC</span></div>
+                    <div class="device-name">Kernel</div>
+                    <div class="device-spec"><span class="label">Version</span><span class="value">Linux 6.16.0</span></div>
+                    <div class="device-spec"><span class="label">Fork</span><span class="value">jcmvbkbc/linux-xtensa</span></div>
+                    <div class="device-spec"><span class="label">Size</span><span class="value">2.8 MB (xipImage)</span></div>
                 </div>
                 <div class="device">
-                    <div class="device-name">Pre-built Packages</div>
-                    <div class="device-spec"><span class="label">Shell</span><span class="value">bash</span></div>
-                    <div class="device-spec"><span class="label">Editor</span><span class="value">nano</span></div>
-                    <div class="device-spec"><span class="label">Monitor</span><span class="value">htop, btop</span></div>
+                    <div class="device-name">Root Filesystem</div>
+                    <div class="device-spec"><span class="label">Format</span><span class="value">EROFS + LZMA</span></div>
+                    <div class="device-spec"><span class="label">Size</span><span class="value">2.5 MB</span></div>
+                    <div class="device-spec"><span class="label">Packages</span><span class="value">bash, nano, htop</span></div>
                 </div>
                 <div class="device">
                     <div class="device-name">Build System</div>
                     <div class="device-spec"><span class="label">Builder</span><span class="value">Buildroot + crosstool-NG</span></div>
-                    <div class="device-spec"><span class="label">Optimizer</span><span class="value">-Os (all packages)</span></div>
+                    <div class="device-spec"><span class="label">Toolchain</span><span class="value">musl 1.25.0.183</span></div>
                     <div class="device-spec"><span class="label">Testing</span><span class="value">QEMU verified</span></div>
                 </div>
             </div>
@@ -120,21 +120,21 @@
                     <div class="device-spec"><span class="label">PSRAM</span><span class="value">8 MB</span></div>
                     <div class="device-spec"><span class="label">Flash</span><span class="value">8 MB</span></div>
                     <div class="device-spec"><span class="label">Target</span><span class="value">ESP32-S3</span></div>
-                    <div class="device-spec"><span class="label">Status</span><span class="value">Stable</span></div>
+                    <div class="device-spec"><span class="label">Status</span><span class="value">Working</span></div>
                 </div>
                 <div class="device">
                     <div class="device-name">r8n16</div>
                     <div class="device-spec"><span class="label">PSRAM</span><span class="value">8 MB</span></div>
                     <div class="device-spec"><span class="label">Flash</span><span class="value">16 MB</span></div>
                     <div class="device-spec"><span class="label">Target</span><span class="value">ESP32-S3</span></div>
-                    <div class="device-spec"><span class="label">Status</span><span class="value">Stable</span></div>
+                    <div class="device-spec"><span class="label">Status</span><span class="value">Working</span></div>
                 </div>
                 <div class="device">
                     <div class="device-name">r16n16</div>
                     <div class="device-spec"><span class="label">PSRAM</span><span class="value">16 MB</span></div>
                     <div class="device-spec"><span class="label">Flash</span><span class="value">16 MB</span></div>
                     <div class="device-spec"><span class="label">Target</span><span class="value">ESP32-S3</span></div>
-                    <div class="device-spec"><span class="label">Status</span><span class="value">Stable</span></div>
+                    <div class="device-spec"><span class="label">Status</span><span class="value">Working</span></div>
                 </div>
             </div>
         </div>
@@ -158,19 +158,19 @@
                         <td>r8n8</td>
                         <td>latest</td>
                         <td>~3.5 MB</td>
-                        <td><a href="https://github.com/hkcfs/mculinux/releases/latest/download/r8n8.zip" class="dl-btn">Download</a></td>
+                        <td><a href="https://github.com/hkcfs/mculinux/releases/latest/download/flash_r8n8.bin" class="dl-btn">Download</a></td>
                     </tr>
                     <tr>
                         <td>r8n16</td>
                         <td>latest</td>
                         <td>~3.5 MB</td>
-                        <td><a href="https://github.com/hkcfs/mculinux/releases/latest/download/r8n16.zip" class="dl-btn">Download</a></td>
+                        <td><a href="https://github.com/hkcfs/mculinux/releases/latest/download/flash_r8n16.bin" class="dl-btn">Download</a></td>
                     </tr>
                     <tr>
                         <td>r16n16</td>
                         <td>latest</td>
                         <td>~3.5 MB</td>
-                        <td><a href="https://github.com/hkcfs/mculinux/releases/latest/download/r16n16.zip" class="dl-btn">Download</a></td>
+                        <td><a href="https://github.com/hkcfs/mculinux/releases/latest/download/flash_r16n16.bin" class="dl-btn">Download</a></td>
                     </tr>
                 </tbody>
             </table>

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MCUlinux Documentation</title>
+    <meta name="description" content="Comprehensive documentation for MCUlinux - Linux on ESP32-S3 microcontrollers.">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.7; color: #e0e0e0; background: #0a0a0f; }
@@ -48,6 +49,12 @@
         table { width: 100%; border-collapse: collapse; margin-bottom: 16px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; overflow: hidden; }
         th { background: rgba(255,255,255,0.04); color: #888; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 12px 16px; text-align: left; }
         td { padding: 12px 16px; border-top: 1px solid rgba(255,255,255,0.04); color: #ccc; }
+        tr:hover td { background: rgba(255,255,255,0.02); }
+
+        .doc-link { display: block; padding: 16px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; margin-bottom: 12px; transition: border-color 0.2s; }
+        .doc-link:hover { border-color: rgba(0,212,255,0.3); }
+        .doc-link .title { color: #fff; font-weight: 600; margin-bottom: 4px; }
+        .doc-link .desc { color: #666; font-size: 0.9rem; }
 
         footer { padding: 40px 0; border-top: 1px solid rgba(255,255,255,0.06); text-align: center; color: #444; font-size: 0.85rem; margin-top: 40px; }
 
@@ -78,14 +85,15 @@
                 <h3>Docs</h3>
                 <ul>
                     <li><a href="#getting-started">Getting Started</a></li>
+                    <li><a href="#devices">Supported Devices</a></li>
                     <li><a href="#installation">Installation</a></li>
-                    <li><a href="#configuration">Configuration</a></li>
-                    <li><a href="#packages">Packages</a></li>
-                    <li><a href="#networking">Networking</a></li>
-                    <li><a href="#serial">Serial Console</a></li>
+                    <li><a href="#build">Building</a></li>
+                    <li><a href="#build-targets">Build Targets</a></li>
+                    <li><a href="#architecture">Architecture</a></li>
+                    <li><a href="#repo-structure">Repository Structure</a></li>
                     <li><a href="#qemu">QEMU Testing</a></li>
-                    <li><a href="#build">Build from Source</a></li>
                     <li><a href="#troubleshooting">Troubleshooting</a></li>
+                    <li><a href="#deep-dives">Deep Dives</a></li>
                 </ul>
             </nav>
 
@@ -94,21 +102,42 @@
 
                 <section id="getting-started">
                     <h2>Getting Started</h2>
-                    <p>MCUlinux is a lightweight musl-based Linux distribution for ESP32-S3 microcontrollers. It runs a real Linux kernel (6.16) with a musl libc userspace, giving you a familiar shell environment on bare metal.</p>
+                    <p>MCUlinux runs a full Linux kernel on the ESP32-S3 &mdash; a $5 microcontroller with 8MB PSRAM. It uses a trimmed 2.8MB kernel, an EROFS+LZMA root filesystem (2.5MB), and boots from an 8MB SPI flash chip. No MMU, no SD card, no Linux board &mdash; just a soldering iron and a serial port.</p>
 
                     <div class="note">
-                        <strong>Note:</strong> MCUlinux currently supports ESP32-S3 only.
+                        <strong>Quick start:</strong> Download a release image and flash it, or test in QEMU with no hardware needed.
                     </div>
 
-                    <h3>Supported Devices</h3>
+                    <h3>Flash to hardware</h3>
+                    <pre><code># Download latest release
+wget https://github.com/hkcfs/mculinux/releases/latest/download/flash_r8n8.bin
+
+# Flash (adjust port for your system)
+esptool.py --chip esp32s3 --port /dev/ttyUSB0 write_flash 0x0 flash_r8n8.bin
+
+# Connect (115200 baud)
+screen /dev/ttyUSB0 115200</code></pre>
+
+                    <h3>Test in QEMU (no hardware needed)</h3>
+                    <pre><code># Install QEMU
+sudo apt install qemu-system-misc
+
+# Boot
+qemu-system-xtensa -M esp32s3 -nographic -m 8M \
+  -global driver=ssi_psram,property=is_octal,value=true \
+  -drive file=flash_r8n8.bin,if=mtd,format=raw</code></pre>
+                </section>
+
+                <section id="devices">
+                    <h2>Supported Devices</h2>
                     <table>
                         <thead>
-                            <tr><th>Device</th><th>PSRAM</th><th>Flash</th><th>Description</th></tr>
+                            <tr><th>Device</th><th>PSRAM</th><th>Flash</th><th>Status</th></tr>
                         </thead>
                         <tbody>
-                            <tr><td>r8n8</td><td>8 MB</td><td>8 MB</td><td>Basic configuration</td></tr>
-                            <tr><td>r8n16</td><td>8 MB</td><td>16 MB</td><td>Extended storage</td></tr>
-                            <tr><td>r16n16</td><td>16 MB</td><td>16 MB</td><td>High memory</td></tr>
+                            <tr><td>r8n8</td><td>8 MB</td><td>8 MB</td><td>Working</td></tr>
+                            <tr><td>r8n16</td><td>8 MB</td><td>16 MB</td><td>Working</td></tr>
+                            <tr><td>r16n16</td><td>16 MB</td><td>16 MB</td><td>Working</td></tr>
                         </tbody>
                     </table>
                 </section>
@@ -119,71 +148,121 @@
                     <h3>Using esptool.py</h3>
                     <pre><code>pip install esptool
 
-wget https://github.com/hkcfs/mculinux/releases/latest/download/r8n8.zip
-unzip r8n8.zip
+wget https://github.com/hkcfs/mculinux/releases/latest/download/flash_r8n8.bin
 
 esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 115200 \
     write_flash 0x0 flash_r8n8.bin</code></pre>
 
                     <h3>Using Web Flasher</h3>
                     <ol>
-                        <li>Open <a href="../flasher/">MCUlinux Flasher</a></li>
+                        <li>Open <a href="../flasher/">MCUlinux Web Flasher</a></li>
                         <li>Select your device type</li>
                         <li>Download or select firmware file</li>
-                        <li>Connect your device via USB</li>
-                        <li>Click Flash</li>
+                        <li>Connect your ESP32-S3 via USB and hold BOOT while clicking Flash</li>
                     </ol>
+
+                    <div class="warning">
+                        <strong>Requirements:</strong> Chrome or Edge browser (Web Serial API). Hold the BOOT button on your ESP32-S3 when clicking Flash.
+                    </div>
                 </section>
 
-                <section id="configuration">
-                    <h2>Configuration</h2>
-                    <p>MCUlinux uses Buildroot for system configuration. The kernel and rootfs are pre-built in the release images.</p>
-                    <pre><code># Boot sequence:
-# 1. ESP32-S3 bootloader
-# 2. Linux kernel (6.16)
-# 3. BusyBox init
-# 4. Shell on serial console
+                <section id="build">
+                    <h2>Building</h2>
+                    <p>MCUlinux uses Buildroot and a musl-based cross-compiler (crosstool-NG 1.25.0.183). No Docker required.</p>
 
-# Serial console: 115200 baud</code></pre>
+                    <pre><code># Clone
+git clone https://github.com/hkcfs/mculinux.git
+cd mculinux/mculinux
+
+# One-time setup (downloads toolchain, Buildroot, ~30 min)
+make setup
+
+# Full build (kernel + flash image + QEMU test)
+make rebuild
+
+# Or step by step
+make kernel-package    # Build kernel from fork
+make image DEVICE=r8n8 # Assemble flash image
+make test DEVICE=r8n8  # Boot in QEMU</code></pre>
+
+                    <div class="note">
+                        <strong>Note:</strong> First build takes 1-2 hours. The musl toolchain compilation is the longest step.
+                    </div>
                 </section>
 
-                <section id="packages">
-                    <h2>Packages</h2>
-                    <p>MCUlinux includes essential packages out of the box.</p>
-
+                <section id="build-targets">
+                    <h2>Build Targets</h2>
                     <table>
                         <thead>
-                            <tr><th>Package</th><th>Description</th></tr>
+                            <tr><th>Target</th><th>Description</th></tr>
                         </thead>
                         <tbody>
-                            <tr><td>busybox</td><td>Lightweight UNIX utilities</td></tr>
-                            <tr><td>htop</td><td>Process viewer</td></tr>
-                            <tr><td>btop</td><td>Resource monitor</td></tr>
-                            <tr><td>nano</td><td>Text editor</td></tr>
-                            <tr><td>coreutils</td><td>Basic UNIX utilities</td></tr>
-                            <tr><td>bash</td><td>Shell</td></tr>
+                            <tr><td><code>make setup</code></td><td>One-time setup (toolchain, Buildroot, esp-hosted)</td></tr>
+                            <tr><td><code>make rebuild</code></td><td>Quick rebuild (kernel + image + test)</td></tr>
+                            <tr><td><code>make kernel-package</code></td><td>Build kernel from fork (no Docker)</td></tr>
+                            <tr><td><code>make image DEVICE=r8n8</code></td><td>Assemble flash image</td></tr>
+                            <tr><td><code>make test DEVICE=r8n8</code></td><td>QEMU boot test</td></tr>
+                            <tr><td><code>make run</code></td><td>Interactive QEMU with retry loop</td></tr>
+                            <tr><td><code>make bootloader</code></td><td>Build WiFi bootloader (needs Docker)</td></tr>
+                            <tr><td><code>make compress</code></td><td>Compare filesystem compression</td></tr>
+                            <tr><td><code>make clean</code></td><td>Clean output and build caches</td></tr>
                         </tbody>
                     </table>
                 </section>
 
-                <section id="networking">
-                    <h2>Networking</h2>
-                    <div class="warning">
-                        <strong>Note:</strong> WiFi support is planned for a future release. Currently MCUlinux boots to a serial shell only.
-                    </div>
+                <section id="architecture">
+                    <h2>Architecture</h2>
+
+                    <h3>Flash Layout (8MB)</h3>
+                    <pre><code>┌─────────────────────────────────────────────┐
+│              Flash Layout (8MB)              │
+├──────────┬──────────┬──────────┬────────────┤
+│bootloader│partition │ network  │ etc.jffs2  │
+│  0x00000 │  0x08000 │  0x10000 │  0x0B0000  │
+├──────────┴──────────┴──────────┴────────────┤
+│           xipImage (2.8MB)                  │
+│              0x120000                       │
+├─────────────────────────────────────────────┤
+│         rootfs.erofs (2.5MB)                │
+│              0x480000                       │
+└─────────────────────────────────────────────┘</code></pre>
+
+                    <h3>Key Components</h3>
+                    <table>
+                        <thead>
+                            <tr><th>Component</th><th>Details</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>Kernel</td><td>Linux 6.16.0 (<a href="https://github.com/jcmvbkbc/linux-xtensa">jcmvbkbc/linux-xtensa</a> fork)</td></tr>
+                            <tr><td>Rootfs</td><td>Alpine-style packages, EROFS+LZMA level 109 (2.5MB)</td></tr>
+                            <tr><td>Toolchain</td><td>crosstool-NG 1.25.0.183 (<code>xtensa-esp32s3-linux-muslfdpic</code>)</td></tr>
+                            <tr><td>Boot</td><td>Network adapter firmware loads XIP kernel from SPI flash</td></tr>
+                            <tr><td>QEMU</td><td><code>qemu-system-xtensa -M esp32s3</code> (no hardware needed)</td></tr>
+                        </tbody>
+                    </table>
                 </section>
 
-                <section id="serial">
-                    <h2>Serial Console</h2>
-                    <pre><code># Linux/macOS
-screen /dev/ttyUSB0 115200
-
-# Default: root, no password</code></pre>
+                <section id="repo-structure">
+                    <h2>Repository Structure</h2>
+                    <pre><code>mculinux/
+├── .github/workflows/     # CI/CD (build, deploy, release)
+├── docs/                  # Documentation and research
+├── mculinux/              # Build system
+│   ├── Makefile           # Main entry point
+│   ├── scripts/           # Build scripts
+│   ├── build/             # Buildroot, toolchain (gitignored)
+│   ├── prebuilt/          # Pre-built bootloader binaries
+│   └── output/            # Build output (gitignored)
+├── mculinux-packages/     # Package definitions
+│   ├── arch/esp32s3/      # Architecture config
+│   └── packages/          # APKBUILD manifests
+└── website/               # GitHub Pages site</code></pre>
                 </section>
 
                 <section id="qemu">
                     <h2>QEMU Testing</h2>
                     <p>MCUlinux images are verified to boot in QEMU before release. You can test images yourself:</p>
+
                     <pre><code># Install QEMU for Xtensa
 sudo apt install qemu-system-misc
 
@@ -191,34 +270,20 @@ sudo apt install qemu-system-misc
 qemu-system-xtensa -M esp32s3 -nographic -m 8M \
     -global driver=ssi_psram,property=is_octal,value=true \
     -drive file=flash_r8n8.bin,if=mtd,format=raw</code></pre>
+
                     <div class="note">
                         <strong>Note:</strong> Always run QEMU with a timeout. The image will boot to a shell prompt and wait for input.
                     </div>
+
                     <pre><code># With timeout (30 seconds):
 timeout 30 qemu-system-xtensa -M esp32s3 -nographic -m 8M \
     -global driver=ssi_psram,property=is_octal,value=true \
     -drive file=flash_r8n8.bin,if=mtd,format=raw</code></pre>
                 </section>
 
-                <section id="build">
-                    <h2>Build from Source</h2>
-                    <p>MCUlinux is built using Buildroot and a musl cross-compiler:</p>
-                    <pre><code># Clone the repository
-git clone https://github.com/hkcfs/mculinux.git
-cd mculinux/mculinux
-
-# One-time setup (downloads toolchain, Buildroot)
-make setup
-
-# Build kernel + flash image
-make rebuild</code></pre>
-                    <div class="note">
-                        <strong>Note:</strong> First build takes 1-2 hours. The musl toolchain compilation is the longest step.
-                    </div>
-                </section>
-
                 <section id="troubleshooting">
                     <h2>Troubleshooting</h2>
+
                     <h3>Device not booting</h3>
                     <ul>
                         <li>Check USB connection</li>
@@ -236,6 +301,7 @@ make rebuild</code></pre>
                     <ul>
                         <li>Use Chrome or Edge (Web Serial API required)</li>
                         <li>Hold BOOT button while clicking Flash</li>
+                        <li>Try <a href="https://thelastoutpostworkshop.github.io/ESPConnect/">ESPConnect</a> as fallback</li>
                         <li>Try esptool.py as fallback</li>
                     </ul>
 
@@ -243,6 +309,41 @@ make rebuild</code></pre>
                     <ul>
                         <li><a href="https://github.com/hkcfs/mculinux/issues">GitHub Issues</a></li>
                     </ul>
+                </section>
+
+                <section id="deep-dives">
+                    <h2>Deep Dives</h2>
+                    <p>In-depth research and technical documentation. These are available in the <a href="https://github.com/hkcfs/mculinux/tree/main/docs">docs/</a> folder of the repository.</p>
+
+                    <a href="https://github.com/hkcfs/mculinux/blob/main/docs/BUILD-PROCESS.md" class="doc-link">
+                        <div class="title">BUILD-PROCESS.md</div>
+                        <div class="desc">Complete build process walkthrough &mdash; from cloning the repo to flashing a working image.</div>
+                    </a>
+
+                    <a href="https://github.com/hkcfs/mculinux/blob/main/docs/RESEARCH.md" class="doc-link">
+                        <div class="title">RESEARCH.md</div>
+                        <div class="desc">Full investigation log and technical decisions behind MCUlinux.</div>
+                    </a>
+
+                    <a href="https://github.com/hkcfs/mculinux/blob/main/docs/EROFS-COMPRESSION-RESEARCH.md" class="doc-link">
+                        <div class="title">EROFS-COMPRESSION-RESEARCH.md</div>
+                        <div class="desc">Filesystem compression benchmarks &mdash; EROFS vs SquashFS vs CramFS with different algorithms.</div>
+                    </a>
+
+                    <a href="https://github.com/hkcfs/mculinux/blob/main/docs/rootfs-filesystem-comparison.md" class="doc-link">
+                        <div class="title">rootfs-filesystem-comparison.md</div>
+                        <div class="desc">Comparing EROFS, SquashFS, and CramFS for embedded root filesystems.</div>
+                    </a>
+
+                    <a href="https://github.com/hkcfs/mculinux/blob/main/docs/GENERIC-KERNEL-TEST.md" class="doc-link">
+                        <div class="title">GENERIC-KERNEL-TEST.md</div>
+                        <div class="desc">Testing a mainline (generic) Linux kernel on ESP32-S3 &mdash; negative result with analysis.</div>
+                    </a>
+
+                    <a href="https://github.com/hkcfs/mculinux/blob/main/docs/ALPINE-PORT-RESEARCH.md" class="doc-link">
+                        <div class="title">ALPINE-PORT-RESEARCH.md</div>
+                        <div class="desc">Alpine Linux port investigation &mdash; challenges and findings for Xtensa architecture.</div>
+                    </a>
                 </section>
             </main>
         </div>
