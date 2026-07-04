@@ -93,11 +93,11 @@ log "Config: $(grep "^CONFIG_.*=y" .config | wc -l) options enabled"
 # ──────────────────────────────────────────────
 # Step 4: Build kernel
 # ──────────────────────────────────────────────
-log "Building kernel..."
-make ARCH=xtensa CROSS_COMPILE="${CROSS_COMPILE}" -j$(nproc) 2>&1 | tee "$OUTPUT_DIR/build.log" | tail -5
+log "Building kernel (this takes 10-20 min)..."
+make ARCH=xtensa CROSS_COMPILE="${CROSS_COMPILE}" -j2 V=1 2>&1 | tee "$OUTPUT_DIR/build.log" | tail -30
 
 # Build DTBs
-make ARCH=xtensa CROSS_COMPILE="${CROSS_COMPILE}" dtbs -j$(nproc) 2>&1 | tail -3
+make ARCH=xtensa CROSS_COMPILE="${CROSS_COMPILE}" dtbs -j2 2>&1 | tail -3
 
 # ──────────────────────────────────────────────
 # Step 5: Package outputs
