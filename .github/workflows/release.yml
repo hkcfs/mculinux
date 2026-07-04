@@ -2,7 +2,8 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       version:
@@ -12,6 +13,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    if: |
+      !contains(github.event.head_commit.message, '[skip release]') &&
+      !contains(github.event.head_commit.message, '[release skip]')
     strategy:
       matrix:
         device: [r8n8, r8n16, r16n16]
@@ -46,13 +50,13 @@ jobs:
       - name: Package
         run: |
           cd mculinux/output/${{ matrix.device }}
-          zip -r ${{ matrix.device }}.zip .
+          zip -r flash_${{ matrix.device }}.zip .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: image-${{ matrix.device }}
-          path: mculinux/output/${{ matrix.device }}/${{ matrix.device }}.zip
+          path: mculinux/output/${{ matrix.device }}/flash_${{ matrix.device }}.zip
 
   release:
     needs: build
@@ -80,6 +84,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: MCUlinux v${{ steps.version.outputs.version }}
+          tag_name: v${{ steps.version.outputs.version }}
           body: |
             ## MCUlinux ${{ steps.version.outputs.version }}
 
@@ -100,9 +105,9 @@ jobs:
             esptool.py --chip esp32s3 --port /dev/ttyUSB0 write_flash 0x0 flash_r8n8.bin
             ```
           files: |
-            image-r8n8/r8n8.zip
-            image-r8n16/r16n16.zip
-            image-r16n16/r16n16.zip
+            image-r8n8/flash_r8n8.zip
+            image-r8n16/flash_r8n16.zip
+            image-r16n16/flash_r16n16.zip
           draft: false
           prerelease: false
           generate_release_notes: true
