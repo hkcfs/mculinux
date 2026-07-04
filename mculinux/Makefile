@@ -3,7 +3,9 @@
 DEVICE ?= r8n8
 TIMEOUT ?= 30
 SCRIPTS := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))scripts
-PKG := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))mculinux-packages/packages/linux-esp32s3
+REPO_ROOT := $(abspath $(dir $(abspath $(lastword $(MAKEFILE_LIST))))..)
+PKG := $(REPO_ROOT)/mculinux-packages/packages/linux-esp32s3
+BUILD_DIR := $(REPO_ROOT)/mculinux/build
 
 all: ## Build all devices (r8n8, r8n16, r16n16)
 	$(SCRIPTS)/build.sh r8n8
@@ -32,14 +34,14 @@ kernel: ## Build kernel + rootfs via Buildroot (Docker)
 	$(SCRIPTS)/build-kernel.sh
 
 kernel-package: ## Build kernel from fork (no Docker, uses XTENSA_GNU_CONFIG)
-	cd $(PKG) && XTENSA_GNU_CONFIG=$(abspath $(PKG)/../../build/xtensa-dynconfig/esp32s3.so) \
-		CROSS_COMPILE=$(abspath $(PKG)/../../build/crosstool-NG/builds/xtensa-esp32s3-linux-muslfdpic/bin/xtensa-esp32s3-linux-muslfdpic-) \
+	cd $(PKG) && XTENSA_GNU_CONFIG=$(BUILD_DIR)/xtensa-dynconfig/esp32s3.so \
+		CROSS_COMPILE=$(BUILD_DIR)/crosstool-NG/builds/xtensa-esp32s3-linux-muslfdpic/bin/xtensa-esp32s3-linux-muslfdpic- \
 		bash build.sh
 
 kernel-config: ## Edit kernel config (opens menuconfig)
 	cd $(PKG)/work/linux-xtensa && \
-		XTENSA_GNU_CONFIG=$(abspath $(PKG)/../../build/xtensa-dynconfig/esp32s3.so) \
-		make ARCH=xtensa CROSS_COMPILE=$(abspath $(PKG)/../../build/crosstool-NG/builds/xtensa-esp32s3-linux-muslfdpic/bin/xtensa-esp32s3-linux-muslfdpic-) menuconfig
+		XTENSA_GNU_CONFIG=$(BUILD_DIR)/xtensa-dynconfig/esp32s3.so \
+		make ARCH=xtensa CROSS_COMPILE=$(BUILD_DIR)/crosstool-NG/builds/xtensa-esp32s3-linux-muslfdpic/bin/xtensa-esp32s3-linux-muslfdpic- menuconfig
 
 image: ## Assemble flash image
 	$(SCRIPTS)/build-image.sh $(DEVICE)
@@ -60,7 +62,8 @@ clean: ## Clean output and build caches
 
 clean-all: clean ## Clean everything including kernel build
 	rm -rf $(PKG)/work/linux-xtensa
-	@echo "Cleaned kernel source"
+	rm -rf $(PKG)/output
+	@echo "Cleaned kernel source and output"
 
 r8n8: ## Build r8n8 (8MB flash)
 	$(SCRIPTS)/build.sh r8n8
