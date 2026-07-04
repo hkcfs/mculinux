@@ -34,7 +34,6 @@ jobs:
       - name: Build
         run: |
           cd mculinux
-          make bootloader
           make kernel-package
           make image DEVICE=${{ matrix.device }}
 

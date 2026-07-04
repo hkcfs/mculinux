@@ -34,11 +34,6 @@ jobs:
           cd mculinux
           make setup
 
-      - name: Build bootloader
-        run: |
-          cd mculinux
-          make bootloader
-
       - name: Build kernel
         run: |
           cd mculinux
