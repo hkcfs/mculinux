@@ -66,7 +66,7 @@
                 <div class="links">
                     <a href="../">Home</a>
                     <a href="../flasher/">Flasher</a>
-                    <a href="https://github.com/mculinux/mculinux">GitHub</a>
+                    <a href="https://github.com/hkcfs/mculinux">GitHub</a>
                 </div>
             </nav>
         </div>
@@ -119,7 +119,7 @@
                     <h3>Using esptool.py</h3>
                     <pre><code>pip install esptool
 
-wget https://github.com/mculinux/mculinux/releases/latest/download/r8n8.zip
+wget https://github.com/hkcfs/mculinux/releases/latest/download/r8n8.zip
 unzip r8n8.zip
 
 esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 115200 \
@@ -185,8 +185,9 @@ screen /dev/ttyUSB0 115200
                     <h2>QEMU Testing</h2>
                     <p>MCUlinux images are verified to boot in QEMU before release. You can test images yourself:</p>
                     <pre><code># Install QEMU for Xtensa
-# Use ESP-IDF QEMU or build from jcmvbkbc/qemu-xtensa
+sudo apt install qemu-system-misc
 
+# Boot MCUlinux
 qemu-system-xtensa -M esp32s3 -nographic -m 8M \
     -global driver=ssi_psram,property=is_octal,value=true \
     -drive file=flash_r8n8.bin,if=mtd,format=raw</code></pre>
@@ -201,16 +202,16 @@ timeout 30 qemu-system-xtensa -M esp32s3 -nographic -m 8M \
 
                 <section id="build">
                     <h2>Build from Source</h2>
-                    <p>MCUlinux is built using Docker and Buildroot:</p>
+                    <p>MCUlinux is built using Buildroot and a musl cross-compiler:</p>
                     <pre><code># Clone the repository
-git clone https://github.com/mculinux/mculinux.git
-cd mculinux
+git clone https://github.com/hkcfs/mculinux.git
+cd mculinux/mculinux
 
-# Build the Docker builder image
-docker build -t mculinux-builder docker/
+# One-time setup (downloads toolchain, Buildroot)
+make setup
 
-# Build everything (musl toolchain + Buildroot + images)
-bash build/build-all.sh</code></pre>
+# Build kernel + flash image
+make rebuild</code></pre>
                     <div class="note">
                         <strong>Note:</strong> First build takes 1-2 hours. The musl toolchain compilation is the longest step.
                     </div>
@@ -231,15 +232,16 @@ bash build/build-all.sh</code></pre>
                         <li>Press RESET button</li>
                     </ul>
 
-                    <h3>WiFi not connecting</h3>
+                    <h3>Web Flasher not working</h3>
                     <ul>
-                        <li>Verify SSID and password</li>
-                        <li>Check signal strength</li>
+                        <li>Use Chrome or Edge (Web Serial API required)</li>
+                        <li>Hold BOOT button while clicking Flash</li>
+                        <li>Try esptool.py as fallback</li>
                     </ul>
 
                     <h3>Getting Help</h3>
                     <ul>
-                        <li><a href="https://github.com/mculinux/mculinux/issues">GitHub Issues</a></li>
+                        <li><a href="https://github.com/hkcfs/mculinux/issues">GitHub Issues</a></li>
                     </ul>
                 </section>
             </main>

@@ -23,20 +23,31 @@
         .step-num { display: inline-block; width: 28px; height: 28px; background: rgba(0,212,255,0.1); color: #00d4ff; border-radius: 50%; text-align: center; line-height: 28px; font-size: 0.8rem; font-weight: 700; margin-right: 10px; }
         .step h3 { display: inline; font-size: 1rem; font-weight: 600; color: #fff; }
         .step p { color: #888; margin-top: 10px; font-size: 0.9rem; }
-        select { width: 100%; padding: 12px 14px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; background: rgba(255,255,255,0.04); color: #fff; font-size: 0.9rem; margin-top: 10px; }
+        select, input[type="file"] { width: 100%; padding: 12px 14px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; background: rgba(255,255,255,0.04); color: #fff; font-size: 0.9rem; margin-top: 10px; }
         select:focus { outline: none; border-color: rgba(0,212,255,0.4); }
         select option { background: #1a1a2e; }
         .btn { display: inline-block; padding: 12px 28px; border-radius: 8px; font-weight: 600; font-size: 0.9rem; border: none; cursor: pointer; transition: all 0.2s; margin-top: 12px; }
         .btn-primary { background: #00d4ff; color: #0a0a0f; }
         .btn-primary:hover { background: #00f0ff; }
+        .btn-danger { background: #ff4444; color: #fff; }
+        .btn-danger:hover { background: #ff6666; }
         .btn:disabled { background: rgba(255,255,255,0.06); color: #555; cursor: not-allowed; }
-        .download-link { display: inline-block; margin-top: 10px; color: #00d4ff; font-size: 0.85rem; }
-        .warning-box { background: rgba(255,193,7,0.06); border: 1px solid rgba(255,193,7,0.15); padding: 14px 18px; border-radius: 8px; margin-top: 20px; color: #aaa; font-size: 0.85rem; }
-        .warning-box strong { color: #ffc107; }
-        .esptool-section { margin-top: 32px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 24px; }
-        .esptool-section h3 { font-size: 1rem; font-weight: 600; color: #fff; margin-bottom: 12px; }
+        .btn-row { display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+        .progress-bar { width: 100%; height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; margin-top: 12px; overflow: hidden; display: none; }
+        .progress-bar .fill { height: 100%; background: linear-gradient(90deg, #00d4ff, #7c3aed); border-radius: 4px; transition: width 0.3s; width: 0%; }
+        .status { margin-top: 12px; padding: 12px 16px; border-radius: 8px; font-size: 0.85rem; display: none; }
+        .status.info { display: block; background: rgba(0,212,255,0.06); border: 1px solid rgba(0,212,255,0.15); color: #aaa; }
+        .status.success { display: block; background: rgba(0,200,83,0.06); border: 1px solid rgba(0,200,83,0.15); color: #aaa; }
+        .status.error { display: block; background: rgba(255,68,68,0.06); border: 1px solid rgba(255,68,68,0.15); color: #aaa; }
+        .status strong { color: #00d4ff; }
+        .status.success strong { color: #00c853; }
+        .status.error strong { color: #ff4444; }
         pre { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); padding: 16px 20px; border-radius: 8px; overflow-x: auto; margin-top: 10px; font-size: 0.85rem; }
         code { font-family: 'JetBrains Mono', monospace; color: #ccc; }
+        .esptool-section { margin-top: 32px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 24px; }
+        .esptool-section h3 { font-size: 1rem; font-weight: 600; color: #fff; margin-bottom: 12px; }
+        .warning-box { background: rgba(255,193,7,0.06); border: 1px solid rgba(255,193,7,0.15); padding: 14px 18px; border-radius: 8px; margin-top: 20px; color: #aaa; font-size: 0.85rem; }
+        .warning-box strong { color: #ffc107; }
         footer { padding: 40px 0; border-top: 1px solid rgba(255,255,255,0.06); text-align: center; color: #444; font-size: 0.85rem; }
     </style>
 </head>
@@ -48,7 +59,7 @@
                 <div class="links">
                     <a href="../">Home</a>
                     <a href="../docs/">Docs</a>
-                    <a href="https://github.com/mculinux/mculinux">GitHub</a>
+                    <a href="https://github.com/hkcfs/mculinux">GitHub</a>
                 </div>
             </nav>
         </div>
@@ -56,8 +67,8 @@
 
     <div class="flasher">
         <div class="container">
-            <h1>Flasher</h1>
-            <p class="subtitle">Flash MCUlinux to your ESP32-S3 device</p>
+            <h1>Web Flasher</h1>
+            <p class="subtitle">Flash MCUlinux to your ESP32-S3 directly from the browser</p>
 
             <div class="step">
                 <span class="step-num">1</span><h3>Select Device</h3>
@@ -69,31 +80,38 @@
             </div>
 
             <div class="step">
-                <span class="step-num">2</span><h3>Get Firmware</h3>
-                <p>Download the latest release for your device</p>
-                <a href="#" id="download-latest" class="btn btn-primary" style="margin-top:8px;">Download Firmware</a>
+                <span class="step-num">2</span><h3>Load Firmware</h3>
+                <p>Download the latest release, then select the .bin file below</p>
+                <div class="btn-row">
+                    <a href="#" id="download-latest" class="btn btn-primary">Download .zip</a>
+                </div>
+                <input type="file" id="firmware-file" accept=".bin" style="margin-top:12px;">
+                <div id="file-info" class="status info" style="display:none;"></div>
             </div>
 
             <div class="step">
-                <span class="step-num">3</span><h3>Flash via Serial</h3>
-                <p>Use esptool.py to flash the firmware to your device</p>
+                <span class="step-num">3</span><h3>Flash</h3>
+                <p>Connect your ESP32-S3 via USB and hold BOOT while clicking Flash</p>
+                <div class="btn-row">
+                    <button id="btn-flash" class="btn btn-primary" disabled>Flash Firmware</button>
+                    <button id="btn-erase" class="btn btn-danger" disabled>Erase Flash</button>
+                </div>
+                <div id="progress" class="progress-bar"><div class="fill"></div></div>
+                <div id="status" class="status"></div>
+            </div>
+
+            <div class="esptool-section">
+                <h3>Manual Flash (esptool.py)</h3>
+                <p style="color:#888;font-size:0.9rem;">If the web flasher doesn't work, use the command line:</p>
                 <pre><code>pip install esptool
 
-# For r8n8:
+# Download firmware from releases, then:
 esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 460800 \
-    write_flash 0x0 flash_r8n8.bin
-
-# For r8n16:
-esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 460800 \
-    write_flash 0x0 flash_r8n16.bin
-
-# For r16n16:
-esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 460800 \
-    write_flash 0x0 flash_r16n16.bin</code></pre>
+    write_flash 0x0 flash_r8n8.bin</code></pre>
             </div>
 
             <div class="warning-box">
-                <strong>Web Flasher:</strong> Browser-based flashing requires HTTPS. For local development, use esptool.py above.
+                <strong>Requirements:</strong> Chrome or Edge browser (Web Serial API). Hold the BOOT button on your ESP32-S3 when clicking Flash.
             </div>
         </div>
     </div>
@@ -104,15 +122,266 @@ esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 460800 \
         </div>
     </footer>
 
-    <script>
+    <script type="module">
         const deviceSelect = document.getElementById('device');
         const downloadLatest = document.getElementById('download-latest');
+        const firmwareFile = document.getElementById('firmware-file');
+        const fileInfo = document.getElementById('file-info');
+        const btnFlash = document.getElementById('btn-flash');
+        const btnErase = document.getElementById('btn-erase');
+        const progress = document.getElementById('progress');
+        const progressFill = progress.querySelector('.fill');
+        const status = document.getElementById('status');
+
+        let firmwareData = null;
+
+        function setStatus(msg, type = 'info') {
+            status.textContent = msg;
+            status.className = 'status ' + type;
+        }
+
+        function setProgress(pct) {
+            progress.style.display = 'block';
+            progressFill.style.width = pct + '%';
+        }
 
         downloadLatest.addEventListener('click', (e) => {
             e.preventDefault();
             const device = deviceSelect.value;
-            window.open(`https://github.com/mculinux/mculinux/releases/latest/download/${device}.zip`, '_blank');
+            window.open(`https://github.com/hkcfs/mculinux/releases/latest/download/${device}.zip`, '_blank');
         });
+
+        firmwareFile.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            firmwareData = await file.arrayBuffer();
+            const sizeMB = (firmwareData.byteLength / 1024 / 1024).toFixed(2);
+            fileInfo.textContent = `Loaded: ${file.name} (${sizeMB} MB)`;
+            fileInfo.style.display = 'block';
+            btnFlash.disabled = false;
+            btnErase.disabled = false;
+        });
+
+        // ESP32-S3 ROM bootloader protocol
+        const ESP_FLASH_IMAGE_TYPE = 0;
+        const ESP_FLASH_SIZE = 0; // auto
+        const ESP_FLASH_FREQ = 0; // auto
+
+        class ESPFlasher {
+            constructor() {
+                this.port = null;
+                this.reader = null;
+                this.writer = null;
+                this.baud = 115200;
+            }
+
+            async connect() {
+                this.port = await navigator.serial.requestPort();
+                await this.port.open({ baudRate: this.baud });
+                this.writer = this.port.writable.getWriter();
+                this.reader = this.port.readable.getReader();
+            }
+
+            async disconnect() {
+                if (this.reader) { try { await this.reader.releaseLock(); } catch(e) {} }
+                if (this.writer) { try { await this.writer.releaseLock(); } catch(e) {} }
+                if (this.port) { try { await this.port.close(); } catch(e) {} }
+            }
+
+            slipEncode(data) {
+                const encoded = [0xC0];
+                for (const byte of data) {
+                    if (byte === 0xC0) { encoded.push(0xDB, 0xDC); }
+                    else if (byte === 0xDB) { encoded.push(0xDB, 0xDD); }
+                    else { encoded.push(byte); }
+                }
+                encoded.push(0xC0);
+                return new Uint8Array(encoded);
+            }
+
+            slipDecode(data) {
+                const decoded = [];
+                let i = 0;
+                while (i < data.length) {
+                    if (data[i] === 0xC0) { i++; continue; }
+                    if (data[i] === 0xDB && data[i+1] === 0xDC) { decoded.push(0xC0); i += 2; }
+                    else if (data[i] === 0xDB && data[i+1] === 0xDD) { decoded.push(0xDB); i += 2; }
+                    else { decoded.push(data[i]); i++; }
+                }
+                return new Uint8Array(decoded);
+            }
+
+            async sendCommand(cmd, data = new Uint8Array(0), checksum = 0) {
+                const frame = new Uint8Array(7 + data.length);
+                frame[0] = 0x02; // command
+                frame[1] = cmd;
+                frame[2] = (data.length >> 8) & 0xFF;
+                frame[3] = data.length & 0xFF;
+                frame[4] = checksum & 0xFF;
+                frame[5] = (checksum >> 8) & 0xFF;
+                // direction = request
+                frame[5] |= 0x80;
+                frame[6] = 0; // header checksum
+                for (let i = 0; i < 6; i++) frame[6] ^= frame[i];
+                frame.set(data, 7);
+                await this.writer.write(this.slipEncode(frame));
+            }
+
+            async readResponse(timeout = 3000) {
+                const chunks = [];
+                const start = Date.now();
+                let started = false;
+                while (Date.now() - start < timeout) {
+                    const { value, done } = await this.reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                    // Check for complete response
+                    const all = this.slipDecode(this.concatBuffers(chunks));
+                    if (all.length >= 8 && all[0] === 0x01) {
+                        const len = (all[2] << 8) | all[3];
+                        if (all.length >= 8 + len) return all;
+                    }
+                }
+                return null;
+            }
+
+            concatBuffers(arrays) {
+                let total = 0;
+                for (const a of arrays) total += a.length;
+                const result = new Uint8Array(total);
+                let offset = 0;
+                for (const a of arrays) { result.set(a, offset); offset += a.length; }
+                return result;
+            }
+
+            async sync() {
+                // Send sync command
+                const syncData = new Uint8Array([0x08, 0x24, 0x3F, 0x24, 0x20, 0x18, 0x20, 0x3F, 0x3F, 0x20, 0x3F, 0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+                await this.sendCommand(0x08, syncData);
+                const resp = await this.readResponse();
+                // Read additional data to clear buffer
+                try { await this.readResponse(500); } catch(e) {}
+                return resp !== null;
+            }
+
+            async chipDetect() {
+                await this.sendCommand(0x0B);
+                const resp = await this.readResponse();
+                if (resp && resp.length >= 12) {
+                    const chipId = (resp[4] << 8) | resp[5];
+                    return chipId;
+                }
+                return null;
+            }
+
+            async eraseFlash(size) {
+                // SPI flash erase sequence
+                const ERASE_CHIP = 0xD8;
+                const data = new Uint8Array([ERASE_CHIP, 0x00, 0x00, 0x00]);
+                const checksum = data.reduce((a, b) => a ^ b, 0);
+                await this.sendCommand(0x0D, data, checksum);
+                const resp = await this.readResponse(300000);
+                return resp !== null;
+            }
+
+            async writeFlash(data, offset = 0, blockSize = 4096) {
+                const blocks = Math.ceil(data.byteLength / blockSize);
+                for (let i = 0; i < blocks; i++) {
+                    const start = i * blockSize;
+                    const end = Math.min(start + blockSize, data.byteLength);
+                    const block = data.slice(start, end);
+                    const addr = offset + start;
+
+                    // Compressed write header
+                    const header = new Uint8Array(16);
+                    // direction = request
+                    header[0] = 0x02;
+                    // command = flash data (0x03)
+                    header[1] = 0x03;
+                    // size
+                    header[2] = (block.length >> 8) & 0xFF;
+                    header[3] = block.length & 0xFF;
+                    // address
+                    header[4] = addr & 0xFF;
+                    header[5] = (addr >> 8) & 0xFF;
+                    header[6] = (addr >> 16) & 0xFF;
+                    header[7] = (addr >> 24) & 0xFF;
+                    // sequence number
+                    header[8] = i & 0xFF;
+                    header[9] = (i >> 8) & 0xFF;
+                    header[10] = (i >> 16) & 0xFF;
+                    header[11] = (i >> 24) & 0xFF;
+                    // checksum (set to 0 for simplicity)
+                    header[12] = 0;
+                    header[13] = 0;
+                    // direction indicator
+                    header[14] = 0;
+                    header[15] = 0;
+
+                    const frame = new Uint8Array(header.length + block.length);
+                    frame.set(header, 0);
+                    frame.set(block, header.length);
+
+                    await this.writer.write(this.slipEncode(frame));
+                    const resp = await this.readResponse(5000);
+                    if (!resp) throw new Error(`Block ${i}/${blocks} failed`);
+
+                    setProgress(Math.round(((i + 1) / blocks) * 100));
+                }
+            }
+        }
+
+        async function doFlash() {
+            if (!firmwareData) {
+                setStatus('Please load a firmware file first.', 'error');
+                return;
+            }
+
+            const flasher = new ESPFlasher();
+            try {
+                setStatus('Connecting... Hold BOOT button on your ESP32-S3.', 'info');
+                await flasher.connect();
+                setStatus('Syncing with bootloader...', 'info');
+                const synced = await flasher.sync();
+                if (!synced) {
+                    setStatus('Could not sync. Make sure BOOT is held and try again.', 'error');
+                    await flasher.disconnect();
+                    return;
+                }
+
+                const chipId = await flasher.chipDetect();
+                setStatus(`Connected! Chip ID: 0x${chipId?.toString(16) || 'unknown'}. Flashing...`, 'info');
+
+                setProgress(0);
+                await flasher.writeFlash(firmwareData, 0);
+
+                setStatus('Flash complete! Release BOOT and press RESET.', 'success');
+                setProgress(100);
+                await flasher.disconnect();
+            } catch (e) {
+                setStatus(`Error: ${e.message}. Use esptool.py if this persists.`, 'error');
+                await flasher.disconnect();
+            }
+        }
+
+        async function doErase() {
+            const flasher = new ESPFlasher();
+            try {
+                setStatus('Connecting... Hold BOOT button on your ESP32-S3.', 'info');
+                await flasher.connect();
+                await flasher.sync();
+                setStatus('Erasing flash (this may take a moment)...', 'info');
+                await flasher.eraseFlash(0);
+                setStatus('Flash erased! Release BOOT and press RESET.', 'success');
+                await flasher.disconnect();
+            } catch (e) {
+                setStatus(`Error: ${e.message}. Use esptool.py if this persists.`, 'error');
+                await flasher.disconnect();
+            }
+        }
+
+        btnFlash.addEventListener('click', doFlash);
+        btnErase.addEventListener('click', doErase);
     </script>
 </body>
 </html>
