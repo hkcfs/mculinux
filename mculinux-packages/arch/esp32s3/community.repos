@@ -3,21 +3,21 @@
 
 [main]
 name = MCUlinux Main
-url = https://github.com/mculinux/mculinux-packages/releases/latest
-packages = https://github.com/mculinux/mculinux-packages/releases/download/v*/packages/
-signature = https://github.com/mculinux/mculinux-packages/releases/download/v*/packages.sig
+url = https://github.com/hkcfs/mculinux-packages/releases/latest
+packages = https://github.com/hkcfs/mculinux-packages/releases/download/v*/packages/
+signature = https://github.com/hkcfs/mculinux-packages/releases/download/v*/packages.sig
 enabled = 1
 
 [community]
 name = MCUlinux Community
-url = https://github.com/mculinux/mculinux-packages/releases/latest
-packages = https://github.com/mculinux/mculinux-packages/releases/download/v*/community/
-signature = https://github.com/mculinux/mculinux-packages/releases/download/v*/community.sig
+url = https://github.com/hkcfs/mculinux-packages/releases/latest
+packages = https://github.com/hkcfs/mculinux-packages/releases/download/v*/community/
+signature = https://github.com/hkcfs/mculinux-packages/releases/download/v*/community.sig
 enabled = 1
 
 [testing]
 name = MCUlinux Testing
-url = https://github.com/mculinux/mculinux-packages/releases/latest
-packages = https://github.com/mculinux/mculinux-packages/releases/download/v*/testing/
-signature = https://github.com/mculinux/mculinux-packages/releases/download/v*/testing.sig
+url = https://github.com/hkcfs/mculinux-packages/releases/latest
+packages = https://github.com/hkcfs/mculinux-packages/releases/download/v*/testing/
+signature = https://github.com/hkcfs/mculinux-packages/releases/download/v*/testing.sig
 enabled = 0
