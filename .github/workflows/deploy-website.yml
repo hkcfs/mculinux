@@ -6,12 +6,20 @@ on:
     paths: ['website/**']
   workflow_dispatch:
 
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     permissions:
       pages: write
       id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Checkout code
@@ -23,4 +31,5 @@ jobs:
           path: ./website
 
       - name: Deploy to GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4
