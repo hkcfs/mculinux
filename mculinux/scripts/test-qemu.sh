@@ -49,18 +49,15 @@ OUTPUT=$(timeout "$TIMEOUT" "$QEMU" \
     2>&1) || EXIT_CODE=$?
 
 # Cleanup temp file
-[ -n "$PADDED" ] && rm -f "$PADDED"
+[ -n "${PADDED:-}" ] && rm -f "$PADDED"
 
-# Analyze
+# Analyze - only PASS if kernel actually booted
 if echo "$OUTPUT" | grep -q "Linux version"; then
     echo "PASS: Linux kernel booted"
-    echo "$OUTPUT" | grep -E "(Linux version|cramfs|Mounted root|Freeing unused|Run /sbin/init|login:)" | head -10
-    exit 0
-elif [ "${EXIT_CODE:-0}" -eq 124 ]; then
-    echo "PASS: Boot successful (timed out after ${TIMEOUT}s)"
+    echo "$OUTPUT" | grep -E "(Linux version|erofs|Mounted root|Freeing unused|Run /sbin/init|login:)" | head -10
     exit 0
 else
-    echo "FAIL: Boot failed (exit code ${EXIT_CODE:-unknown})"
-    echo "$OUTPUT" | tail -20
+    echo "FAIL: Linux kernel did not boot"
+    echo "$OUTPUT" | tail -30
     exit 1
 fi

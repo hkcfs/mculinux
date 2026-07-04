@@ -187,7 +187,7 @@ build_device() {
 
     # Verify outputs
     log "Verifying build outputs..."
-    for f in xipImage rootfs.cramfs etc.jffs2; do
+    for f in xipImage rootfs.erofs etc.jffs2; do
         if [ ! -f "$BUILDROOT_OUT/images/$f" ]; then
             echo "ERROR: Missing: $BUILDROOT_OUT/images/$f"
             return 1
@@ -254,10 +254,11 @@ build_device() {
        of="$FLASH_IMAGE" bs=1 seek=$((0xB0000)) conv=notrunc 2>/dev/null
     dd if="$BUILDROOT_OUT/images/xipImage" \
        of="$FLASH_IMAGE" bs=1 seek=$((0x120000)) conv=notrunc 2>/dev/null
-    # Stripped cramfs at 0x480000 (must be < 3.5MB to fit kernel DTB partition)
-    local CRAMFS_SIZE=$(stat -c%s "$BUILDROOT_OUT/images/rootfs.cramfs")
-    if [ "$CRAMFS_SIZE" -gt 3670016 ]; then
-        log "WARNING: rootfs.cramfs ($CRAMFS_SIZE bytes) > 3.5MB partition, stripping..."
+    # EROFS at 0x480000 (must be < 3.5MB to fit kernel DTB partition)
+    local ROOTFS="$BUILDROOT_OUT/images/rootfs.erofs"
+    local ROOTFS_SIZE=$(stat -c%s "$ROOTFS")
+    if [ "$ROOTFS_SIZE" -gt 3670016 ]; then
+        log "WARNING: rootfs.erofs ($ROOTFS_SIZE bytes) > 3.5MB partition, stripping..."
         local STRIPPED_DIR="/tmp/mculinux-stripped-rootfs"
         local TARGET_DIR="$BUILDROOT_OUT/target"
         rm -rf "$STRIPPED_DIR"
@@ -269,20 +270,23 @@ build_device() {
         rm -f "$STRIPPED_DIR/usr/lib/libnl"*
         rm -rf "$STRIPPED_DIR/usr/lib/terminfo" "$STRIPPED_DIR/usr/share/ncurses"
         rm -f "$STRIPPED_DIR/usr/bin/htop" "$STRIPPED_DIR/usr/bin/nano"
-        local STRIPPED_CRAMFS="/tmp/rootfs_stripped.cramfs"
         find "$STRIPPED_DIR" -name ".*" -delete 2>/dev/null || true
-        "$BUILDROOT_OUT/host/bin/mkcramfs" -q "$STRIPPED_DIR" "$STRIPPED_CRAMFS"
-        log "  Stripped cramfs: $(ls -lh "$STRIPPED_CRAMFS" | awk '{print $5}')"
-        dd if="$STRIPPED_CRAMFS" of="$FLASH_IMAGE" bs=1 seek=$((0x480000)) conv=notrunc 2>/dev/null
+        local STRIPPED_EROFS="/tmp/rootfs_stripped.erofs"
+        mkfs.erofs -zlzma,level=109 -C 16384 \
+          -E fragments,dedupe,ztailpacking,force-inode-compact \
+          -x -1 -T 0 \
+          "$STRIPPED_EROFS" "$STRIPPED_DIR"
+        log "  Stripped erofs: $(ls -lh "$STRIPPED_EROFS" | awk '{print $5}')"
+        dd if="$STRIPPED_EROFS" of="$FLASH_IMAGE" bs=1 seek=$((0x480000)) conv=notrunc 2>/dev/null
     else
-        dd if="$BUILDROOT_OUT/images/rootfs.cramfs" \
+        dd if="$BUILDROOT_OUT/images/rootfs.erofs" \
            of="$FLASH_IMAGE" bs=1 seek=$((0x480000)) conv=notrunc 2>/dev/null
     fi
 
     log "Flash image: $FLASH_IMAGE ($(ls -lh "$FLASH_IMAGE" | awk '{print $5}'))"
 
     # Copy individual images
-    for f in xipImage rootfs.cramfs etc.jffs2; do
+    for f in xipImage rootfs.erofs etc.jffs2; do
         cp "$BUILDROOT_OUT/images/$f" "$OUTPUT_DIR/${device}/" 2>/dev/null || true
     done
     for f in bootloader.bin partition-table.bin network_adapter.bin; do

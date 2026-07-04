@@ -27,10 +27,12 @@ fi
 sudo docker run --rm \
   -v "$MCULINUX_DIR:/app" \
   -w /app/build \
+  -e XTENSA_GNU_CONFIG=/app/build/xtensa-dynconfig/esp32s3.so \
   mculinux-builder:latest \
   bash -c '
 set -e
 export PATH="$(pwd)/autoconf-2.71/root/bin:$PATH"
+export XTENSA_GNU_CONFIG=/app/build/xtensa-dynconfig/esp32s3.so
 
 echo "Toolchain: $(crosstool-NG/builds/xtensa-esp32s3-linux-muslfdpic/bin/xtensa-esp32s3-linux-muslfdpic-gcc --version 2>/dev/null | head -1)"
 
@@ -39,7 +41,7 @@ nice make -C buildroot O="$(pwd)/build-buildroot-esp32s3_devkit_c1_8m" -j$(nproc
 
 echo ""
 echo "=== Build Output ==="
-for f in xipImage rootfs.cramfs etc.jffs2; do
+for f in xipImage rootfs.erofs etc.jffs2; do
     if [ -f "build-buildroot-esp32s3_devkit_c1_8m/images/$f" ]; then
         echo "  $f: $(ls -lh "build-buildroot-esp32s3_devkit_c1_8m/images/$f" | awk '"'"'{print $5}'"'"')"
     else

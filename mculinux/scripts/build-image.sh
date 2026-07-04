@@ -48,16 +48,16 @@ for f in "$BOOTLOADER_DIR/network_adapter/build/bootloader/bootloader.bin" \
     fi
 done
 
-# Check rootfs
+# Check rootfs (prefer erofs for better compression)
 ROOTFS=""
 if [ -n "$ROOTFS_OVERRIDE" ] && [ -f "$ROOTFS_OVERRIDE" ]; then
     ROOTFS="$ROOTFS_OVERRIDE"
-elif [ -f "$BUILDROOT_OUT/images/rootfs.cramfs" ]; then
-    ROOTFS="$BUILDROOT_OUT/images/rootfs.cramfs"
+elif [ -f "$BUILDROOT_OUT/images/rootfs.erofs" ]; then
+    ROOTFS="$BUILDROOT_OUT/images/rootfs.erofs"
 fi
 
 if [ -z "$ROOTFS" ]; then
-    echo "MISSING: rootfs.cramfs"
+    echo "MISSING: rootfs.erofs"
     MISSING=1
 fi
 
@@ -87,7 +87,7 @@ dd if="$ROOTFS" \
    of="$FLASH_IMAGE" bs=1 seek=$((0x480000)) conv=notrunc 2>/dev/null
 
 # Copy components to output
-cp "$ROOTFS" "$OUTPUT_DIR/${DEVICE}/rootfs.cramfs" 2>/dev/null || true
+cp "$ROOTFS" "$OUTPUT_DIR/${DEVICE}/rootfs.erofs" 2>/dev/null || true
 cp "$BUILDROOT_OUT/images/xipImage" "$OUTPUT_DIR/${DEVICE}/" 2>/dev/null || true
 cp "$BUILDROOT_OUT/images/etc.jffs2" "$OUTPUT_DIR/${DEVICE}/" 2>/dev/null || true
 cp "$BOOTLOADER_DIR/network_adapter/build/bootloader/bootloader.bin" "$OUTPUT_DIR/${DEVICE}/" 2>/dev/null || true

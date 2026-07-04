@@ -280,8 +280,8 @@ make all    # Build all 3 devices
 
 ```
 ## Label          Type    ST      Offset        Length
-nvs,              data,   nvs,    0x0000A000,   0x00005000    (20KB)
-phy_init,         data,   phy,    0x0000F000,   0x00001000    (4KB)
+nvs,              data,   nvs,    0x00009000,   0x00001000    (4KB)
+phy_init,         data,   phy,    0x0000A000,   0x00001000    (4KB)
 factory,          app,    factory,0x00010000,   0x000A0000    (640KB)
 etc,              0x40,   0x1,    0x000B0000,   0x00070000    (448KB)
 linux,            0x40,   0x0,    0x00120000,   0x00360000    (3.375MB)
@@ -292,7 +292,7 @@ rootfs,           0x40,   0x1,    0x00480000,   0x00380000    (3.5MB)
 
 | Partition | Offset | Size | Contents |
 |-----------|--------|------|----------|
-| **nvs** | 0xA000 | 20KB | Non-volatile storage (WiFi credentials, calibration) |
+| **nvs** | 0x9000 | 4KB | Non-volatile storage (WiFi disabled, minimal) |
 | **phy_init** | 0xF000 | 4KB | PHY initialization data |
 | **factory** | 0x10000 | 640KB | WiFi firmware (`network_adapter.bin`) |
 | **etc** | 0xB0000 | 448KB | `/etc` filesystem (`etc.jffs2`, writable) |

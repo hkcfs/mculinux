@@ -19,18 +19,24 @@ Everything we tried, what worked, what failed, and why.
 
 ## Current Status
 
-**Date:** 2026-07-03
+**Date:** 2026-07-04
 
 All 3 device images boot in QEMU:
 
 | Device | Flash | Rootfs | Size | Boot |
 |--------|-------|--------|------|------|
-| r8n8 | 8MB | stripped cramfs | 1.4MB | PASS |
-| r8n16 | 16MB | stripped cramfs | 1.4MB | PASS |
-| r16n16 | 16MB | stripped cramfs | 1.4MB | PASS |
+| r8n8 | 8MB | erofs+lzma | 2.5MB | PASS (85% reliable) |
+| r8n16 | 16MB | erofs+lzma | 2.5MB | PASS |
+| r16n16 | 16MB | erofs+lzma | 2.5MB | PASS |
 
 Buildroot config: `xtensa-2025.08-fdpic` (kernel 6.16)
 Toolchain: `xtensa-esp32s3-linux-muslfdpic-gcc 14.0.1` (musl, FDPIC)
+
+**Major Changes:**
+- Migrated from cramfs to EROFS+LZMA as default (2.5MB vs 4.3MB cramfs)
+- All packages now fit without stripping (wpa_supplicant, dropbear, iw, htop, nano)
+- Kernel config: EROFS with LZMA decompressor only (no squashfs, no zstd)
+- DTB changed from `root=mtd:rootfs` to `root=/dev/mtdblock5`
 
 ---
 
@@ -343,9 +349,18 @@ Technically yes, but:
 ### Boot Sequence (All Devices)
 ```
 ESP-ROM bootloader → loads xipImage → Linux 6.16.0 boots
-→ mounts cramfs rootfs at 0x480000 → runs /sbin/init
+→ mounts EROFS rootfs at 0x480000 → runs /sbin/init
 → buildroot login: prompt
 ```
+
+### Known Issue: NOMMU init reliability (~85%)
+On NOMMU, `init` (busybox) requires a contiguous order-8 (1024KB) allocation to load. With only ~1416KB free and fragmented by kernel slabs, this succeeds ~85% of the time. The remaining 15% shows:
+```
+nommu: Allocation of length 856064 from process 1 (init) failed
+Starting init: /sbin/init exists but couldn't execute it (error -12)
+Run /bin/sh as init process
+```
+The system falls back to `/bin/sh` directly but won't have a proper login prompt.
 
 ### QEMU Test Command
 ```bash
@@ -388,19 +403,28 @@ sudo docker run --rm -v $(pwd):/app -w /app/build \
 **Error:** Kernel lacks CONFIG_SQUASHFS=y
 **Cause:** Cannot rebuild kernel to add it
 **Impact:** Cannot use better compression to fit more in partition
+**Status: RESOLVED** — Rebuilt kernel through Buildroot (no linux-dirclean needed), enabled SQUASHFS, XZ, and EROFS support
+
+### 5. NOMMU Memory Fragmentation
+**Error:** `nommu: Allocation of length 856064 from process 1 (init) failed`
+**Cause:** On NOMMU, loading ELF binaries requires contiguous RAM. With only 8MB total and heavy kernel slab usage (printk buffer ~540KB, TCP hash tables ~256KB), the order-8 (1024KB) allocation for init fails ~15% of the time.
+**Impact:** Boot succeeds ~85% of the time; remaining 15% falls back to `/bin/sh` without login
+**Mitigation:** System still runs (kernel auto-falls back to /bin/sh), but no proper init/login
 
 ---
 
 ## Remaining Limitations
 
-### 1. No WiFi/SSH in Stripped Build
+### 1. ~~No WiFi/SSH in Stripped Build~~ RESOLVED
 The 8MB flash can only fit a minimal rootfs. WiFi (wpa_supplicant) and SSH (dropbear) are removed.
+**Status: RESOLVED** — Squashfs+zstd compresses to 2.7MB (vs 4.3MB cramfs), fitting all packages with 800KB headroom.
 
 ### 2. 16MB Flash Wasted
 The kernel's partition layout is fixed at 8MB. The extra 8MB on r8n16/r16n16 is unused.
 
-### 3. Kernel Cannot Be Modified After Build
+### 3. ~~Kernel Cannot Be Modified After Build~~ RESOLVED
 The `linux-dirclean` + rebuild path is broken. Any kernel config change requires a complete rebuild from scratch, which fails.
+**Status: RESOLVED** — Kernel can be reconfigured by modifying the kernel config fragment and running `make kernel` (which runs Buildroot, not linux-dirclean). Added SQUASHFS, XZ, EROFS support this way.
 
 ### 4. FDPIC Binary Crashes (Known)
 Busybox init and syslogd crash with FDPIC-related errors. The system still boots because busybox retries. This is a known issue with the musl-xtensa FDPIC fork.
@@ -549,5 +573,50 @@ dd if=rootfs.cramfs of=flash.bin bs=1 seek=0x480000 conv=notrunc
 timeout 25 qemu-system-xtensa \
   -M esp32s3 -nographic -m 8M \
   -global driver=ssi_psram,property=is_octal,value=true \
-  -drive file=flash.bin,if=mtd,format=raw
+   -drive file=flash.bin,if=mtd,format=raw
+```
+
+### Test 8: Squashfs+ZSTD (kernel rebuild via Buildroot)
+```
+Changed kernel config fragment: SQUASHFS=y, SQUASHFS_ZSTD=y
+Changed Buildroot defconfig: CRAMFS → SQUASHFS+ZSTD
+Rebuilt via: make kernel (Buildroot, no linux-dirclean)
+Result: xipImage rebuilt with squashfs, rootfs.squashfs 2.7MB
+QEMU boot: PASS (Mounted root (squashfs filesystem))
+Init reliability: ~85% (NOMMU fragmentation)
+Status: PASS
+```
+
+### Test 9: Squashfs+XZ (2.5MB)
+```
+Generated rootfs_squashfs_xz.bin with mksquashfs -comp xz
+Added CONFIG_SQUASHFS_XZ=y to kernel config
+QEMU boot: PASS, 2.5MB (best compression)
+Status: PASS
+```
+
+### Test 10: EROFS+LZMA (winner)
+```
+mkfs.erofs -zlzma,level=109 -C 16384 \
+  -E fragments,dedupe,ztailpacking,force-inode-compact \
+  -x -1 -T 0 rootfs.erofs ./target/
+Result: 2.43MB (smallest of all tests)
+Kernel: CONFIG_EROFS_FS=y, CONFIG_EROFS_FS_ZIP=y, CONFIG_EROFS_FS_ZIP_LZMA=y
+QEMU boot: PASS (Mounted root (erofs filesystem))
+Status: PASS — DEFAULT
+```
+
+## RootFS Compression Comparison (Final)
+
+| Filesystem | Compression | Flags | Size |
+|------------|-------------|-------|------|
+| cramfs | zlib | Buildroot default | 4.3 MB |
+| SquashFS | gzip | `-comp gzip -b 16384` | 2.8 MB |
+| SquashFS | zstd | `-comp zstd -Xcompression-level 22 -b 16K` | 2.7 MB |
+| SquashFS | xz | `-comp xz -b 16384` | 2.5 MB |
+| EROFS (default) | zstd,level=3 | defaults | 3.6 MB |
+| EROFS (optimized) | zstd,level=22 | `-z zstd,level=22,dictsize=64k -C 65536 -E fragments,dedupe` | 2.6 MB |
+| **EROFS (winner)** | **lzma,level=109** | **`-zlzma,level=109 -C 16384 -E fragments,dedupe,ztailpacking,force-inode-compact -x -1 -T 0`** | **2.43 MB** |
+
+**Default choice: EROFS+LZMA** — smallest image (2.43MB), best compression ratio (2.43x), fits easily in 3.5MB partition with 1MB headroom.
 ```
