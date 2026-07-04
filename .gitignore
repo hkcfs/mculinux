@@ -8,7 +8,8 @@ mculinux/build/buildroot/
 mculinux/build/crosstool-NG/
 mculinux/build/esp-hosted/
 mculinux/build/esp32s3/
-mculinux/build/xtensa-dynconfig/
+mculinux/build/xtensa-dynconfig/*
+!mculinux/build/xtensa-dynconfig/esp32s3.so
 mculinux/build/autoconf-*/
 mculinux/build/build-buildroot-*/
 mculinux/build/linux-*src/

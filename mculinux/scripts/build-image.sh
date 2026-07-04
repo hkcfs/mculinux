@@ -34,13 +34,23 @@ FLASH_IMAGE="$OUTPUT_DIR/${DEVICE}/flash_${DEVICE}.bin"
 # Component paths
 BUILDROOT_OUT="$BUILD_DIR/build-buildroot-esp32s3_devkit_c1_8m"
 BOOTLOADER_DIR="$BUILD_DIR/esp-hosted/esp_hosted_ng/esp/esp_driver"
+KERNEL_PKG="$MCULINUX_DIR/mculinux-packages/packages/linux-esp32s3"
+
+# Find xipImage: prefer kernel package, fallback to Buildroot
+if [ -f "$KERNEL_PKG/output/xtensa-6.16-esp32/xipImage" ]; then
+    XIP_IMAGE="$KERNEL_PKG/output/xtensa-6.16-esp32/xipImage"
+elif [ -f "$KERNEL_PKG/work/linux-xtensa/arch/xtensa/boot/xipImage" ]; then
+    XIP_IMAGE="$KERNEL_PKG/work/linux-xtensa/arch/xtensa/boot/xipImage"
+else
+    XIP_IMAGE="$BUILDROOT_OUT/images/xipImage"
+fi
 
 # Verify components exist
 MISSING=0
 for f in "$BOOTLOADER_DIR/network_adapter/build/bootloader/bootloader.bin" \
          "$BOOTLOADER_DIR/network_adapter/build/partition_table/partition-table.bin" \
          "$BOOTLOADER_DIR/network_adapter/build/network_adapter.bin" \
-         "$BUILDROOT_OUT/images/xipImage" \
+         "$XIP_IMAGE" \
          "$BUILDROOT_OUT/images/etc.jffs2"; do
     if [ ! -f "$f" ]; then
         echo "MISSING: $f"
@@ -81,14 +91,14 @@ dd if="$BOOTLOADER_DIR/network_adapter/build/network_adapter.bin" \
    of="$FLASH_IMAGE" bs=1 seek=$((0x10000)) conv=notrunc 2>/dev/null
 dd if="$BUILDROOT_OUT/images/etc.jffs2" \
    of="$FLASH_IMAGE" bs=1 seek=$((0xB0000)) conv=notrunc 2>/dev/null
-dd if="$BUILDROOT_OUT/images/xipImage" \
+dd if="$XIP_IMAGE" \
    of="$FLASH_IMAGE" bs=1 seek=$((0x120000)) conv=notrunc 2>/dev/null
 dd if="$ROOTFS" \
    of="$FLASH_IMAGE" bs=1 seek=$((0x480000)) conv=notrunc 2>/dev/null
 
 # Copy components to output
 cp "$ROOTFS" "$OUTPUT_DIR/${DEVICE}/rootfs.erofs" 2>/dev/null || true
-cp "$BUILDROOT_OUT/images/xipImage" "$OUTPUT_DIR/${DEVICE}/" 2>/dev/null || true
+cp "$XIP_IMAGE" "$OUTPUT_DIR/${DEVICE}/" 2>/dev/null || true
 cp "$BUILDROOT_OUT/images/etc.jffs2" "$OUTPUT_DIR/${DEVICE}/" 2>/dev/null || true
 cp "$BOOTLOADER_DIR/network_adapter/build/bootloader/bootloader.bin" "$OUTPUT_DIR/${DEVICE}/" 2>/dev/null || true
 cp "$BOOTLOADER_DIR/network_adapter/build/partition_table/partition-table.bin" "$OUTPUT_DIR/${DEVICE}/" 2>/dev/null || true
