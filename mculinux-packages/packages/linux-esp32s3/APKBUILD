@@ -1,0 +1,88 @@
+# Contributor: MCUlinux <dev@mculinux.org>
+# Maintainer: MCUlinux <dev@mculinux.org>
+pkgname=linux-esp32s3
+pkgver=6.16
+pkgrel=0
+pkgdesc="Mainline Linux kernel with ESP32-S3 support patches"
+url="https://kernel.org"
+arch="xtensa"
+license="GPL-2.0-only"
+depends="musl"
+makedepends="gcc-cross-xtensa binutils-cross-xtensa dtc flex bison bc elfutils-dev openssl-dev perl"
+options="!strip !check !debug"
+subpackages="$pkgname-headers:$pkgname_headers"
+source="https://cdn.kernel.org/pub/linux/kernel/v${pkgver%%.*}.x/linux-$pkgver.tar.xz"
+
+# ESP32-S3 patches from jcmvbkbc/linux-xtensa fork
+# These add Xtensa variant, platform, drivers, and DTS for ESP32-S3
+_patches=(
+    001-xtensa-esp32s3-variant.patch
+    002-esp32-platform.patch
+    003-irq-esp32-intc.patch
+    004-clk-esp32s3.patch
+    005-serial-esp32-uart.patch
+    006-gpio-esp32.patch
+    007-spi-esp32.patch
+    008-hwrng-esp32-trng.patch
+    009-ipc-esp32.patch
+    010-mtd-esp32-flash.patch
+    011-usb-esp32-acm.patch
+    012-phy-esp32s3-usb.patch
+    013-dts-esp32s3.patch
+    014-wifi-esp32-ng.patch
+    015-esp32s3-kconfig.patch
+)
+
+prepare() {
+    cd "$srcdir/linux-$pkgver"
+
+    # Apply ESP32-S3 patches
+    local p
+    for p in "${_patches[@]}"; do
+        msg "Applying $p"
+        patch -p1 < "$srcdir/$p"
+    done
+}
+
+build() {
+    cd "$srcdir/linux-$pkgver"
+
+    # Use ESP32-S3 defconfig
+    make ARCH=xtensa \
+        CROSS_COMPILE=xtensa-esp32s3-linux-muslfdpic- \
+        xtensa-esp32s3_defconfig
+
+    # Build kernel
+    make ARCH=xtensa \
+        CROSS_COMPILE=xtensa-esp32s3-linux-muslfdpic- \
+        -j$(nproc)
+
+    # Build DTB
+    make ARCH=xtensa \
+        CROSS_COMPILE=xtensa-esp32s3-linux-muslfdpic- \
+        dtbs
+}
+
+package() {
+    cd "$srcdir/linux-$pkgver"
+
+    make ARCH=xtensa \
+        CROSS_COMPILE=xtensa-esp32s3-linux-muslfdpic- \
+        INSTALL_MOD_PATH="$pkgdir" \
+        modules_install
+
+    # Install xipImage and DTB
+    install -Dm644 arch/xtensa/boot/xipImage "$pkgdir/boot/xipImage"
+    install -Dm644 arch/xtensa/boot/dts/esp32s3-devkit-c1.dtb "$pkgdir/boot/esp32s3-devkit-c1.dtb"
+}
+
+headers() {
+    pkgdesc="Linux kernel headers for ESP32-S3"
+    depends=""
+
+    cd "$srcdir/linux-$pkgver"
+    make ARCH=xtensa \
+        CROSS_COMPILE=xtensa-esp32s3-linux-muslfdpic- \
+        INSTALL_HDR_PATH="$subpkgdir/usr" \
+        headers_install
+}

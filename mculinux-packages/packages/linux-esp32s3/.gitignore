@@ -1,0 +1,9 @@
+work/
+output/
+*.o
+*.cmd
+*.ko
+*.mod
+*.mod.c
+*.order
+.cache.mk

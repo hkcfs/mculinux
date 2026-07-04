@@ -43,3 +43,7 @@ __pycache__/
 # Temporary files
 *.tmp
 *.temp
+
+# Kernel package build artifacts
+mculinux-packages/packages/linux-esp32s3/work/
+mculinux-packages/packages/linux-esp32s3/output/
