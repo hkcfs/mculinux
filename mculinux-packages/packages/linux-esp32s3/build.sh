@@ -6,13 +6,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-MCULINUX_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+MCULINUX_DIR="$REPO_ROOT/mculinux"
 WORK_DIR="$SCRIPT_DIR/work"
 OUTPUT_DIR="$SCRIPT_DIR/output"
 BRANCH="xtensa-6.16-esp32"
 FORK_URL="https://github.com/jcmvbkbc/linux-xtensa.git"
 
-# Required tools
+# Required tools (inside mculinux/build/)
 XTENSA_GNU_CONFIG="$MCULINUX_DIR/build/xtensa-dynconfig/esp32s3.so"
 CROSS_COMPILE="$MCULINUX_DIR/build/crosstool-NG/builds/xtensa-esp32s3-linux-muslfdpic/bin/xtensa-esp32s3-linux-muslfdpic-"
 export PATH="$(dirname "$CROSS_COMPILE"):$PATH"
