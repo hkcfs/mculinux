@@ -76,6 +76,21 @@ make test DEVICE=r8n8  # Boot in QEMU
 | `make compress` | Compare filesystem compression |
 | `make clean` | Clean output and build caches |
 
+## Docker Builder
+
+A pre-built Docker image is available with all build dependencies:
+
+```bash
+# Pull the builder image
+docker pull ghcr.io/hkcfs/mculinux/builder:latest
+
+# Run a build
+docker run --rm -v $(pwd):/app -w /app/mculinux \
+  ghcr.io/hkcfs/mculinux/builder:latest make rebuild
+```
+
+The image is built automatically by CI when `mculinux/docker/Dockerfile` changes.
+
 ## Documentation
 
 All documentation is in the [`docs/`](./docs/) folder:
