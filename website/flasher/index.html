@@ -101,8 +101,21 @@
             </div>
 
             <div class="esptool-section">
+                <h3>Alternative: ESPConnect</h3>
+                <p style="color:#888;font-size:0.9rem;">If the web flasher above doesn't work, use Espressif's official ESPConnect:</p>
+                <pre><code># Install ESPConnect
+pip install esptool
+
+# Or use the official Espressif web flasher:
+# https://espressif.github.io/esptool-js/</code></pre>
+                <div class="btn-row">
+                    <a href="https://espressif.github.io/esptool-js/" target="_blank" class="btn btn-primary">Open ESPConnect</a>
+                </div>
+            </div>
+
+            <div class="esptool-section" style="margin-top:16px;">
                 <h3>Manual Flash (esptool.py)</h3>
-                <p style="color:#888;font-size:0.9rem;">If the web flasher doesn't work, use the command line:</p>
+                <p style="color:#888;font-size:0.9rem;">Or use the command line:</p>
                 <pre><code>pip install esptool
 
 # Download firmware from releases, then:
