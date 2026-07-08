@@ -34,11 +34,17 @@ FLASH_IMAGE="$OUTPUT_DIR/${DEVICE}/flash_${DEVICE}.bin"
 # Component paths
 BUILDROOT_OUT="$BUILD_DIR/build-buildroot-esp32s3_devkit_c1_8m"
 PREBUILT_DIR="$MCULINUX_DIR/prebuilt/bootloader"
+PREBUILT_BINARIES="$MCULINUX_DIR/tools/prebuilt/binaries"
 ESP_HOSTED_DIR="$BUILD_DIR/esp-hosted/esp_hosted_ng/esp/esp_driver"
 KERNEL_PKG="$MCULINUX_DIR/mculinux-packages/packages/linux-esp32s3"
 
-# Find bootloader binaries: prefer prebuilt, fallback to esp-hosted
-if [ -f "$PREBUILT_DIR/network_adapter.bin" ]; then
+# Find bootloader binaries: prebuilt binaries > prebuilt bootloader > esp-hosted
+if [ -f "$PREBUILT_BINARIES/network_adapter.bin" ]; then
+    BOOTLOADER_BIN="$PREBUILT_BINARIES/bootloader.bin"
+    PARTITION_BIN="$PREBUILT_BINARIES/partition-table.bin"
+    NETWORK_BIN="$PREBUILT_BINARIES/network_adapter.bin"
+    echo "Using prebuilt binaries from tools/prebuilt/"
+elif [ -f "$PREBUILT_DIR/network_adapter.bin" ]; then
     BOOTLOADER_BIN="$PREBUILT_DIR/bootloader.bin"
     PARTITION_BIN="$PREBUILT_DIR/partition-table.bin"
     NETWORK_BIN="$PREBUILT_DIR/network_adapter.bin"
@@ -55,8 +61,10 @@ else
     exit 1
 fi
 
-# Find xipImage: prefer kernel package, fallback to Buildroot
-if [ -f "$KERNEL_PKG/output/xtensa-6.16-esp32/xipImage" ]; then
+# Find xipImage: prebuilt binaries > kernel package > Buildroot
+if [ -f "$PREBUILT_BINARIES/xipImage" ]; then
+    XIP_IMAGE="$PREBUILT_BINARIES/xipImage"
+elif [ -f "$KERNEL_PKG/output/xtensa-6.16-esp32/xipImage" ]; then
     XIP_IMAGE="$KERNEL_PKG/output/xtensa-6.16-esp32/xipImage"
 elif [ -f "$KERNEL_PKG/work/linux-xtensa/arch/xtensa/boot/xipImage" ]; then
     XIP_IMAGE="$KERNEL_PKG/work/linux-xtensa/arch/xtensa/boot/xipImage"
@@ -67,16 +75,22 @@ else
     exit 1
 fi
 
-# Check rootfs (prefer erofs for better compression)
+# Check rootfs: prebuilt binaries > rootfs override > Buildroot
 ROOTFS=""
 if [ -n "$ROOTFS_OVERRIDE" ] && [ -f "$ROOTFS_OVERRIDE" ]; then
     ROOTFS="$ROOTFS_OVERRIDE"
+elif [ -f "$PREBUILT_BINARIES/rootfs.erofs" ]; then
+    ROOTFS="$PREBUILT_BINARIES/rootfs.erofs"
 elif [ -f "$BUILDROOT_OUT/images/rootfs.erofs" ]; then
     ROOTFS="$BUILDROOT_OUT/images/rootfs.erofs"
 fi
 
-# Find etc.jffs2
-JFFS2="$BUILDROOT_OUT/images/etc.jffs2"
+# Find etc.jffs2: prebuilt binaries > Buildroot
+if [ -f "$PREBUILT_BINARIES/etc.jffs2" ]; then
+    JFFS2="$PREBUILT_BINARIES/etc.jffs2"
+else
+    JFFS2="$BUILDROOT_OUT/images/etc.jffs2"
+fi
 
 # Verify all components exist
 MISSING=0

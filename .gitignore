@@ -14,11 +14,15 @@ mculinux/build/autoconf-*/
 mculinux/build/build-buildroot-*/
 mculinux/build/linux-*src/
 *.o
-*.bin
 *.elf
 
-# Tools (downloaded binaries)
-mculinux/tools/
+# Allow prebuilt binaries (override *.bin rule for this path)
+!mculinux/tools/prebuilt/**/*.bin
+
+# Tools - allowlist prebuilt binaries
+mculinux/tools/*
+!mculinux/tools/prebuilt/
+!mculinux/tools/prebuilt/**
 
 # Docker
 docker-compose.override.yml

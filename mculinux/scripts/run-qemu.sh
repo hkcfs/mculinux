@@ -8,9 +8,21 @@
 set -euo pipefail
 
 MCULINUX_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-QEMU="${QEMU:-$MCULINUX_DIR/tools/qemu/qemu/bin/qemu-system-xtensa}"
 DEVICE="${1:-r8n8}"
 FLASH_IMAGE="$MCULINUX_DIR/output/${DEVICE}/flash_${DEVICE}.bin"
+
+# Find QEMU: env > local build > system PATH
+if [ -n "${QEMU:-}" ] && [ -x "$QEMU" ]; then
+    : # use QEMU from environment
+elif [ -x "$MCULINUX_DIR/tools/qemu/qemu/bin/qemu-system-xtensa" ]; then
+    QEMU="$MCULINUX_DIR/tools/qemu/qemu/bin/qemu-system-xtensa"
+elif command -v qemu-system-xtensa &>/dev/null; then
+    QEMU=qemu-system-xtensa
+else
+    echo "SKIP: qemu-system-xtensa not found"
+    echo "  Install: sudo apt-get install qemu-system-misc"
+    exit 2
+fi
 
 if [ ! -f "$FLASH_IMAGE" ]; then
     echo "Flash image not found. Run: make image DEVICE=$DEVICE"
