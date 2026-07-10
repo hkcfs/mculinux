@@ -1,6 +1,6 @@
 #!/bin/bash
 # Assemble flash image from components
-# Usage: ./scripts/build-image.sh [device] [--rootfs path]
+# Usage: ./scripts/build-image.sh [device] [--rootfs path] [--kernel 6.16|7.1]
 # Devices: r8n8 (default), r8n16, r16n16
 
 set -e
@@ -10,12 +10,14 @@ BUILD_DIR="$MCULINUX_DIR/build"
 OUTPUT_DIR="$MCULINUX_DIR/output"
 DEVICE="${1:-r8n8}"
 ROOTFS_OVERRIDE=""
+KERNEL_VERSION="6.16"
 
 # Parse args
 shift || true
 while [ $# -gt 0 ]; do
     case "$1" in
         --rootfs) ROOTFS_OVERRIDE="$2"; shift 2 ;;
+        --kernel) KERNEL_VERSION="$2"; shift 2 ;;
         *) shift ;;
     esac
 done
@@ -61,19 +63,38 @@ else
     exit 1
 fi
 
-# Find xipImage: prebuilt binaries > kernel package > Buildroot
-if [ -f "$PREBUILT_BINARIES/xipImage" ]; then
-    XIP_IMAGE="$PREBUILT_BINARIES/xipImage"
-elif [ -f "$KERNEL_PKG/output/xtensa-6.16-esp32/xipImage" ]; then
-    XIP_IMAGE="$KERNEL_PKG/output/xtensa-6.16-esp32/xipImage"
-elif [ -f "$KERNEL_PKG/work/linux-xtensa/arch/xtensa/boot/xipImage" ]; then
-    XIP_IMAGE="$KERNEL_PKG/work/linux-xtensa/arch/xtensa/boot/xipImage"
-elif [ -f "$BUILDROOT_OUT/images/xipImage" ]; then
-    XIP_IMAGE="$BUILDROOT_OUT/images/xipImage"
-else
-    echo "ERROR: xipImage not found"
-    exit 1
+# Find xipImage: kernel version specific prebuilt > general prebuilt > kernel package > Buildroot
+XIP_IMAGE=""
+case "$KERNEL_VERSION" in
+    7.1)
+        if [ -f "$PREBUILT_BINARIES/xipImage-7.1" ]; then
+            XIP_IMAGE="$PREBUILT_BINARIES/xipImage-7.1"
+        fi
+        ;;
+    6.16|*)
+        if [ -f "$PREBUILT_BINARIES/xipImage-6.16" ]; then
+            XIP_IMAGE="$PREBUILT_BINARIES/xipImage-6.16"
+        fi
+        ;;
+esac
+
+# Fallback to generic prebuilt or build outputs
+if [ -z "$XIP_IMAGE" ] || [ ! -f "$XIP_IMAGE" ]; then
+    if [ -f "$PREBUILT_BINARIES/xipImage" ]; then
+        XIP_IMAGE="$PREBUILT_BINARIES/xipImage"
+    elif [ -f "$KERNEL_PKG/output/xtensa-6.16-esp32/xipImage" ]; then
+        XIP_IMAGE="$KERNEL_PKG/output/xtensa-6.16-esp32/xipImage"
+    elif [ -f "$KERNEL_PKG/work/linux-xtensa/arch/xtensa/boot/xipImage" ]; then
+        XIP_IMAGE="$KERNEL_PKG/work/linux-xtensa/arch/xtensa/boot/xipImage"
+    elif [ -f "$BUILDROOT_OUT/images/xipImage" ]; then
+        XIP_IMAGE="$BUILDROOT_OUT/images/xipImage"
+    else
+        echo "ERROR: xipImage not found"
+        exit 1
+    fi
 fi
+
+echo "Using kernel $KERNEL_VERSION: $XIP_IMAGE ($(du -h "$XIP_IMAGE" | cut -f1))"
 
 # Check rootfs: prebuilt binaries > rootfs override > Buildroot
 ROOTFS=""
@@ -115,7 +136,7 @@ fi
 mkdir -p "$OUTPUT_DIR/${DEVICE}"
 echo "Creating ${FLASH_SIZE_MB}MB flash image..."
 
-dd if=/dev/zero bs=1 count=$FLASH_SIZE_BYTES 2>/dev/null | tr '\0' '\377' > "$FLASH_IMAGE"
+dd if=/dev/zero bs=1M count=$FLASH_SIZE_MB 2>/dev/null | tr '\0' '\377' > "$FLASH_IMAGE"
 
 # Write at kernel DTB partition offsets
 dd if="$BOOTLOADER_BIN" of="$FLASH_IMAGE" bs=1 seek=0 conv=notrunc 2>/dev/null

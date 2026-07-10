@@ -1,6 +1,7 @@
 .PHONY: all image test run clean help r8n8 r8n16 r16n16
 
 DEVICE ?= r8n8
+KERNEL ?= 6.16
 TIMEOUT ?= 30
 SCRIPTS := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))scripts
 
@@ -15,10 +16,11 @@ help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Devices: r8n8, r8n16, r16n16"
-	@echo "Example: make image DEVICE=r8n8"
+	@echo "Kernels: 6.16, 7.1 (default: 7.1)"
+	@echo "Example: make image DEVICE=r8n8 KERNEL=7.1"
 
 image: ## Assemble flash image from prebuilt binaries
-	$(SCRIPTS)/build-image.sh $(DEVICE)
+	$(SCRIPTS)/build-image.sh $(DEVICE) --kernel $(KERNEL)
 
 test: ## Boot flash image in QEMU
 	$(SCRIPTS)/test-qemu.sh $(DEVICE) $(TIMEOUT)
