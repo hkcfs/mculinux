@@ -10,7 +10,7 @@ BUILD_DIR="$MCULINUX_DIR/build"
 OUTPUT_DIR="$MCULINUX_DIR/output"
 DEVICE="${1:-r8n8}"
 ROOTFS_OVERRIDE=""
-KERNEL_VERSION="6.16"
+KERNEL_VERSION="7.1"
 
 # Parse args
 shift || true
@@ -144,7 +144,7 @@ dd if="$PARTITION_BIN" of="$FLASH_IMAGE" bs=1 seek=$((0x8000)) conv=notrunc 2>/d
 dd if="$NETWORK_BIN" of="$FLASH_IMAGE" bs=1 seek=$((0x10000)) conv=notrunc 2>/dev/null
 dd if="$JFFS2" of="$FLASH_IMAGE" bs=1 seek=$((0xB0000)) conv=notrunc 2>/dev/null
 dd if="$XIP_IMAGE" of="$FLASH_IMAGE" bs=1 seek=$((0x120000)) conv=notrunc 2>/dev/null
-dd if="$ROOTFS" of="$FLASH_IMAGE" bs=1 seek=$((0x480000)) conv=notrunc 2>/dev/null
+dd if="$ROOTFS" of="$FLASH_IMAGE" bs=1 seek=$((0x500000)) conv=notrunc 2>/dev/null
 
 # Copy components to output
 cp "$ROOTFS" "$OUTPUT_DIR/${DEVICE}/rootfs.erofs" 2>/dev/null || true

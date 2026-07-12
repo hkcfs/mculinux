@@ -1,7 +1,7 @@
 .PHONY: all image test run clean help r8n8 r8n16 r16n16
 
 DEVICE ?= r8n8
-KERNEL ?= 6.16
+KERNEL ?= 7.1
 TIMEOUT ?= 30
 SCRIPTS := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))scripts
 
