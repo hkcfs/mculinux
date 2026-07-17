@@ -11,6 +11,14 @@ MCULINUX_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DEVICE="${1:-r8n8}"
 FLASH_IMAGE="$MCULINUX_DIR/output/${DEVICE}/flash_${DEVICE}.bin"
 
+# Per-device QEMU memory config
+case "$DEVICE" in
+    r8n8)   QEMU_RAM="8M" ;;
+    r8n16)  QEMU_RAM="8M" ;;
+    r16n16) QEMU_RAM="8M" ;;
+    *)      QEMU_RAM="8M" ;;
+esac
+
 # Find QEMU: env > local build > system PATH
 if [ -n "${QEMU:-}" ] && [ -x "$QEMU" ]; then
     : # use QEMU from environment
@@ -44,9 +52,9 @@ for attempt in 1 2 3; do
     FP="$PADDED"
   fi
 
-  echo "Booting $DEVICE (attempt $attempt)... Login as root (no password), then run: free"
+  echo "Booting $DEVICE (attempt $attempt, ${QEMU_RAM} RAM)... Login as root (no password), then run: free"
   set +e
-  "$QEMU" -M esp32s3 -nographic -m 8M \
+  "$QEMU" -M esp32s3 -nographic -m "$QEMU_RAM" \
       -global driver=ssi_psram,property=is_octal,value=true \
       -drive file="$FP",if=mtd,format=raw
   QEMU_EXIT=$?

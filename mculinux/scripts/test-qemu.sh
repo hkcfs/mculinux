@@ -11,6 +11,14 @@ TIMEOUT="${2:-30}"
 
 FLASH_IMAGE="$MCULINUX_DIR/output/${DEVICE}/flash_${DEVICE}.bin"
 
+# Per-device QEMU memory config
+case "$DEVICE" in
+    r8n8)   QEMU_RAM="8M" ;;
+    r8n16)  QEMU_RAM="8M" ;;
+    r16n16) QEMU_RAM="8M" ;;  # 16MB RAM causes kernel hang; use 8MB
+    *)      QEMU_RAM="8M" ;;
+esac
+
 # Find QEMU: env > local build > system PATH
 if [ -n "${QEMU:-}" ] && [ -x "$QEMU" ]; then
     : # use QEMU from environment
@@ -45,15 +53,37 @@ if [ $NEXT_POWER -ne $FILE_SIZE ]; then
     FLASH_IMAGE="$PADDED"
 fi
 
-# Run QEMU
-echo "=== QEMU Test: $DEVICE (${TIMEOUT}s timeout) ==="
-OUTPUT=$(timeout "$TIMEOUT" "$QEMU" \
-    -M esp32s3 \
-    -nographic \
-    -m 8M \
-    -global driver=ssi_psram,property=is_octal,value=true \
-    -drive file="$FLASH_IMAGE",if=mtd,format=raw \
-    2>&1) || EXIT_CODE=$?
+# Run QEMU (retry on failure for NOMMU flakiness)
+echo "=== QEMU Test: $DEVICE (${TIMEOUT}s timeout, ${QEMU_RAM} RAM) ==="
+for attempt in 1 2 3; do
+    EXIT_CODE=0
+    OUTPUT=$(timeout "$TIMEOUT" "$QEMU" \
+        -M esp32s3 \
+        -nographic \
+        -m "$QEMU_RAM" \
+        -global driver=ssi_psram,property=is_octal,value=true \
+        -drive file="$FLASH_IMAGE",if=mtd,format=raw \
+        2>&1) || EXIT_CODE=$?
+
+    # Check for "Bad ram pointer" — flash/bootloader incompatibility
+    if echo "$OUTPUT" | grep -q "Bad ram pointer"; then
+        echo "  Attempt $attempt: Bad ram pointer (bootloader/flash size mismatch)"
+        if [ $attempt -lt 3 ]; then
+            sleep 1
+            continue
+        fi
+    fi
+
+    # Check for successful boot
+    if echo "$OUTPUT" | grep -q "Linux version"; then
+        break
+    fi
+
+    if [ $attempt -lt 3 ]; then
+        echo "  Attempt $attempt: no boot, retrying..."
+        sleep 1
+    fi
+done
 
 # Cleanup temp file
 [ -n "${PADDED:-}" ] && rm -f "$PADDED"
