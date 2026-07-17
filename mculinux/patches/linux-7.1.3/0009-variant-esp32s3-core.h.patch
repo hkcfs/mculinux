@@ -1,0 +1,41 @@
+--- /tmp/jcmvbkbc-xtensa-6.16/arch/xtensa/variants/esp32s3/include/variant/core.h	2026-07-16 20:29:37.337983371 +0000
++++ /tmp/linux-7.1.3/arch/xtensa/variants/esp32s3/include/variant/core.h	2026-07-16 21:02:15.173004425 +0000
+@@ -76,7 +76,7 @@
+ /*#define XCHAL_HAVE_POPC		0*/	/* POPC instruction */
+ /*#define XCHAL_HAVE_CRC		0*/	/* CRC instruction */
+ #define XCHAL_HAVE_RELEASE_SYNC		1	/* L32AI/S32RI instructions */
+-#define XCHAL_HAVE_S32C1I		1	/* S32C1I instruction */
++#define XCHAL_HAVE_S32C1I		0	/* S32C1I instruction */
+ #define XCHAL_HAVE_SPECULATION		0	/* speculation */
+ #define XCHAL_HAVE_FULL_RESET		1	/* all regs/state reset */
+ #define XCHAL_NUM_CONTEXTS		1	/* */
+@@ -679,3 +679,29 @@
+ 
+ 
+ #endif /* _XTENSA_CORE_CONFIGURATION_H */
++
++/* KIO defines for CACHEATTR-based memory management */
++#ifndef XCHAL_KIO_CACHED_VADDR
++#define XCHAL_KIO_CACHED_VADDR  0xb0000000
++#endif
++#ifndef XCHAL_KIO_BYPASS_VADDR
++#define XCHAL_KIO_BYPASS_VADDR  XCHAL_KIO_PADDR
++#endif
++
++/* TLB defines (required even for noMMU builds) */
++#ifndef XCHAL_ITLB_ARF_ENTRIES_LOG2
++#define XCHAL_ITLB_ARF_ENTRIES_LOG2	2
++#endif
++#ifndef XCHAL_DTLB_ARF_ENTRIES_LOG2
++#define XCHAL_DTLB_ARF_ENTRIES_LOG2	2
++#endif
++
++/* Windowed ABI defines (needed for windowed vectors) */
++#define XCHAL_WINDOW_OF4_VECOFS		0x00000000
++#define XCHAL_WINDOW_UF4_VECOFS		0x00000040
++#define XCHAL_WINDOW_OF8_VECOFS		0x00000080
++#define XCHAL_WINDOW_UF8_VECOFS		0x000000C0
++#define XCHAL_WINDOW_OF12_VECOFS	0x00000100
++#define XCHAL_WINDOW_UF12_VECOFS	0x00000140
++#define XCHAL_WINDOW_VECTORS_VADDR	0x40000000
++#define XCHAL_WINDOW_VECTORS_PADDR	0x40000000

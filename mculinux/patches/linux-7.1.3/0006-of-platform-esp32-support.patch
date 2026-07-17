@@ -1,0 +1,106 @@
+--- /tmp/jcmvbkbc-xtensa-6.16/drivers/of/platform.c	2026-07-16 20:30:12.190115259 +0000
++++ /tmp/linux-7.1.3/drivers/of/platform.c	2026-07-17 00:49:06.162691464 +0000
+@@ -111,7 +111,7 @@
+ 
+ 	/* Populate the resource table */
+ 	if (num_reg) {
+-		res = kcalloc(num_reg, sizeof(*res), GFP_KERNEL);
++		res = kzalloc_objs(*res, num_reg);
+ 		if (!res) {
+ 			platform_device_put(dev);
+ 			return NULL;
+@@ -156,8 +156,6 @@
+ {
+ 	struct platform_device *dev;
+ 
+-	pr_debug("create platform device: %pOF\n", np);
+-
+ 	if (!of_device_is_available(np) ||
+ 	    of_node_test_and_set_flag(np, OF_POPULATED))
+ 		return NULL;
+@@ -359,15 +357,12 @@
+ 	}
+ 
+ 	if (of_device_is_compatible(bus, "arm,primecell")) {
+-		/*
+-		 * Don't return an error here to keep compatibility with older
+-		 * device tree files.
+-		 */
+ 		of_amba_device_create(bus, bus_id, platform_data, parent);
+ 		return 0;
+ 	}
+ 
+ 	dev = of_platform_device_create_pdata(bus, bus_id, platform_data, parent);
++
+ 	if (!dev || !of_match_node(matches, bus))
+ 		return 0;
+ 
+@@ -394,7 +389,6 @@
+ 			  const struct of_device_id *matches,
+ 			  struct device *parent)
+ {
+-	struct device_node *child;
+ 	int rc = 0;
+ 
+ 	root = root ? of_node_get(root) : of_find_node_by_path("/");
+@@ -407,13 +401,13 @@
+ 	/* Do a self check of bus type, if there's a match, create children */
+ 	if (of_match_node(matches, root)) {
+ 		rc = of_platform_bus_create(root, matches, NULL, parent, false);
+-	} else for_each_child_of_node(root, child) {
+-		if (!of_match_node(matches, child))
+-			continue;
+-		rc = of_platform_bus_create(child, matches, NULL, parent, false);
+-		if (rc) {
+-			of_node_put(child);
+-			break;
++	} else {
++		for_each_child_of_node_scoped(root, child) {
++			if (!of_match_node(matches, child))
++				continue;
++			rc = of_platform_bus_create(child, matches, NULL, parent, false);
++			if (rc)
++				break;
+ 		}
+ 	}
+ 
+@@ -501,7 +495,7 @@
+ 
+ static int __init of_platform_default_populate_init(void)
+ {
+-	struct device_node *node;
++	struct device_node *node, *reserved;
+ 
+ 	device_links_supplier_sync_state_pause();
+ 
+@@ -564,12 +558,18 @@
+ 		 * platform_devices for every node in /reserved-memory with a
+ 		 * "compatible",
+ 		 */
+-		for_each_matching_node(node, reserved_mem_matches)
+-			of_platform_device_create(node, NULL, NULL);
++		reserved = of_find_node_by_path("/reserved-memory");
++		if (reserved) {
++			for_each_child_of_node(reserved, node) {
++				if (of_match_node(reserved_mem_matches, node))
++					of_platform_device_create(node, NULL, NULL);
++			}
++			of_node_put(reserved);
++		}
+ 
+ 		node = of_find_node_by_path("/firmware");
+ 		if (node) {
+-			of_platform_populate(node, NULL, NULL, NULL);
++			of_platform_default_populate(node, NULL, NULL);
+ 			of_node_put(node);
+ 		}
+ 
+@@ -743,7 +743,7 @@
+ 		 * Clear the flag before adding the device so that fw_devlink
+ 		 * doesn't skip adding consumers to this device.
+ 		 */
+-		rd->dn->fwnode.flags &= ~FWNODE_FLAG_NOT_DEVICE;
++		fwnode_clear_flag(&rd->dn->fwnode, FWNODE_FLAG_NOT_DEVICE);
+ 		/* pdev_parent may be NULL when no bus platform device */
+ 		pdev_parent = of_find_device_by_node(parent);
+ 		pdev = of_platform_device_create(rd->dn, NULL,

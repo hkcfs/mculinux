@@ -1,0 +1,11 @@
+--- /tmp/jcmvbkbc-xtensa-6.16/arch/xtensa/variants/esp32s3/include/variant/tie.h	2026-07-16 20:29:37.341983386 +0000
++++ /tmp/linux-7.1.3/arch/xtensa/variants/esp32s3/include/variant/tie.h	2026-07-16 21:04:42.113535611 +0000
+@@ -34,7 +34,7 @@
+ 
+ #define XCHAL_CP_NUM			2	/* number of coprocessors */
+ #define XCHAL_CP_MAX			4	/* max CP ID + 1 (0 if none) */
+-#define XCHAL_CP_MASK			0x09	/* bitmask of all CPs by ID */
++#define XCHAL_CP_MASK			0x01	/* bitmask of all CPs by ID */
+ #define XCHAL_CP_PORT_MASK		0x00	/* bitmask of only port CPs */
+ 
+ /*  Basic parameters of each coprocessor:  */

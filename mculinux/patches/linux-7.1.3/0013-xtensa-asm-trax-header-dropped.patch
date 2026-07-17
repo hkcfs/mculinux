@@ -1,0 +1,32 @@
+--- /tmp/jcmvbkbc-xtensa-6.16/arch/xtensa/include/asm/trax.h	2026-07-16 20:29:37.293983204 +0000
++++ /dev/null	2026-07-14 18:50:36.146062281 +0000
+@@ -1,29 +0,0 @@
+-#ifndef _XTENSA_TRAX_H
+-#define _XTENSA_TRAX_H
+-#include <asm/core.h>
+-
+-#if defined(CONFIG_TRAX) && XCHAL_HAVE_TRAX
+-
+-int trax_start(void);
+-int trax_stop(void);
+-void trax_dump(void);
+-
+-#else
+-
+-static inline int trax_start(void)
+-{
+-	return -EINVAL;
+-}
+-
+-static inline int trax_stop(void)
+-{
+-	return -EINVAL;
+-}
+-
+-static inline void trax_dump(void)
+-{
+-}
+-
+-#endif
+-
+-#endif

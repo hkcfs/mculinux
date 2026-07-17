@@ -1,0 +1,11 @@
+--- /tmp/jcmvbkbc-xtensa-6.16/arch/xtensa/boot/dts/esp32s3.dtsi	2026-07-16 20:29:37.273983129 +0000
++++ /tmp/linux-7.1.3/arch/xtensa/boot/dts/esp32s3.dtsi	2026-07-17 00:50:52.931061422 +0000
+@@ -8,7 +8,7 @@
+ 	interrupt-parent = <&pic>;
+ 
+ 	chosen {
+-		bootargs = "earlycon=esp32s3uart,mmio32,0x60000000,115200n8,40000000 console=ttyS0,115200n8 debug rw root=mtd:rootfs no_hash_pointers ";
++		bootargs = "earlycon=esp32s3uart,mmio32,0x60000000,115200n8,40000000 console=ttyS0,115200n8 debug rw root=/dev/mtdblock5 no_hash_pointers panic=1 keep_bootcon";
+ 	};
+ 
+ 	aliases {

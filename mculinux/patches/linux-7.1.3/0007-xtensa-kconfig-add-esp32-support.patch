@@ -1,0 +1,79 @@
+--- /tmp/jcmvbkbc-xtensa-6.16/arch/xtensa/Kconfig	2026-07-16 20:29:37.269983113 +0000
++++ /tmp/linux-7.1.3/arch/xtensa/Kconfig	2026-07-16 22:20:58.845986864 +0000
+@@ -47,7 +47,6 @@
+ 	select HAVE_GCC_PLUGINS if GCC_VERSION >= 120000
+ 	select HAVE_HW_BREAKPOINT if PERF_EVENTS
+ 	select HAVE_IRQ_TIME_ACCOUNTING
+-	select HAVE_LD_DEAD_CODE_DATA_ELIMINATION
+ 	select HAVE_PAGE_SIZE_4KB
+ 	select HAVE_PCI
+ 	select HAVE_PERF_EVENTS
+@@ -57,6 +56,7 @@
+ 	select IRQ_DOMAIN
+ 	select LOCK_MM_AND_FIND_VMA
+ 	select MODULES_USE_ELF_RELA
++	select PERF_USE_VMALLOC
+ 	select TRACE_IRQFLAGS_SUPPORT
+ 	help
+ 	  Xtensa processors are 32-bit RISC machines designed by Tensilica
+@@ -401,18 +401,6 @@
+ 	prompt "Xtensa System Type"
+ 	default XTENSA_PLATFORM_ISS
+ 
+-config XTENSA_PLATFORM_ESP32
+-	bool "ESP32"
+-	select ESP32_INTC
+-	select PLATFORM_HAVE_XIP
+-	select PLATFORM_WANT_DEFAULT_MEM
+-	select XIP_KERNEL
+-	select XTENSA_CALIBRATE_CCOUNT
+-	select XTENSA_LOAD_STORE
+-	help
+-	  ESP32 is a dual-core Xtensa-based IoT MCU from Espressif.
+-	  Configured with FLASH and PSRAM it is capable of running noMMU Linux.
+-
+ config XTENSA_PLATFORM_ISS
+ 	bool "ISS"
+ 	select XTENSA_CALIBRATE_CCOUNT
+@@ -437,6 +425,18 @@
+ 	  XTFPGA is the name of Tensilica board family (LX60, LX110, LX200, ML605).
+ 	  This hardware is capable of running a full Linux distribution.
+ 
++config XTENSA_PLATFORM_ESP32
++	bool "ESP32"
++	select ESP32_INTC
++	select PLATFORM_HAVE_XIP
++	select PLATFORM_WANT_DEFAULT_MEM
++	select XIP_KERNEL
++	select XTENSA_CALIBRATE_CCOUNT
++	select XTENSA_LOAD_STORE
++	help
++	  ESP32 is a dual-core Xtensa-based IoT MCU from Espressif.
++	  Configured with FLASH and PSRAM it is capable of running noMMU Linux.
++
+ endchoice
+ 
+ config PLATFORM_NR_IRQS
+@@ -706,6 +706,7 @@
+ 
+ config XTENSA_VECTORS_IN_TEXT
+ 	bool "Merge relocatable vectors into kernel text"
++	depends on !MTD_XIP
+ 	help
+ 	  This option puts relocatable vectors into the kernel .text section
+ 	  with proper alignment.
+@@ -823,9 +824,11 @@
+ config ARCH_HIBERNATION_POSSIBLE
+ 	def_bool y
+ 
+-config ARCH_SUSPEND_POSSIBLE
+-	def_bool y
+-
+ source "kernel/power/Kconfig"
+ 
+ endmenu
++
++
++config ESP32_INTC
++	bool
++	select IRQ_DOMAIN_HIERARCHY
