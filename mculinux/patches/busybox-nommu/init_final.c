@@ -18,9 +18,13 @@ int main(void) {
     mkdir("/tmp", 0755);
     mkdir("/var", 0755);
     mkdir("/root", 0700);
+    mkdir("/etc", 0755);
 
     mount("proc", "/proc", "proc", 0, NULL);
     mount("sysfs", "/sys", "sysfs", 0, NULL);
+
+    /* Mount etc partition (mtdblock3) as RW jffs2 */
+    mount("/dev/mtdblock3", "/etc", "jffs2", MS_SYNCHRONOUS, NULL);
 
     setenv("PATH", "/sbin:/bin:/usr/sbin:/usr/bin", 1);
     setenv("HOME", "/root", 1);
