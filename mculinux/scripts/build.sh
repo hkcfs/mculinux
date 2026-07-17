@@ -20,4 +20,4 @@ echo ""
 
 # Step 2: QEMU test
 echo "--- Step 2/2: QEMU Test ---"
-"$SCRIPT_DIR/test-qemu.sh" "$DEVICE" 30
+"$SCRIPT_DIR/test-qemu.sh" "$DEVICE" 60

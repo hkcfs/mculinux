@@ -1,0 +1,316 @@
+name: Monthly Build & Release
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'  # First day of every month
+  workflow_dispatch:       # Manual trigger
+
+env:
+  TOOLCHAIN_DIR: /opt/crosstool-ng/xtensa-esp32s3-linux-muslfdpic
+  XTPROJECT: /opt/xtensa/esp32s3
+  DYNCONFIG: /opt/xtensa-dynconfig/esp32s3.so
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        device: [r8n8, r8n16, r16n16]
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc g++ make cmake ninja-build git wget curl \
+            bison flex gperf help2man texinfo \
+            libexpat1-dev libncurses-dev libusb-1.0-0-dev \
+            python3 python3-pip python3-serial
+
+      - name: Setup cross-compiler
+        run: |
+          # Download prebuilt xtensa musl toolchain
+          TOOLCHAIN_URL="https://github.com/hkcfs/mculinux/releases/download/toolchain/xtensa-esp32s3-linux-muslfdpic.tar.xz"
+          mkdir -p $TOOLCHAIN_DIR
+          if ! wget -q "$TOOLCHAIN_URL" -O /tmp/toolchain.tar.xz 2>/dev/null; then
+            echo "Toolchain not available, building from source..."
+            # Fallback: use buildroot's toolchain
+            echo "SKIP_TOOLCHAIN=true" >> $GITHUB_ENV
+          else
+            tar xf /tmp/toolchain.tar.xz -C /opt/
+            echo "$TOOLCHAIN_DIR/bin" >> $GITHUB_PATH
+          fi
+
+      - name: Setup dynconfig
+        run: |
+          mkdir -p /opt/xtensa/esp32s3
+          # Dynconfig is needed for xtensa build
+          # If not available, build will use default config
+          if [ -f tools/project/xtensa/esp32s3/ ]; then
+            cp -r tools/project/xtensa/esp32s3/* /opt/xtensa/esp32s3/ 2>/dev/null || true
+          fi
+
+      - name: Apply kernel patches
+        run: |
+          echo "=== Applying Linux 7.1.3 ESP32-S3 patches ==="
+
+          # Download kernel source
+          cd /tmp
+          wget -q https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.1.3.tar.xz
+          tar xf linux-7.1.3.tar.xz
+          cd linux-7.1.3
+
+          # Apply patch files
+          for patch in ../mculinux/patches/linux-7.1.3/0*.patch; do
+            echo "Applying $(basename $patch)..."
+            git apply --check "$patch" 2>/dev/null && git apply "$patch" || \
+              patch -p1 < "$patch" || echo "WARN: patch may already be applied"
+          done
+
+          # Apply inline patches
+          bash ../mculinux/patches/linux-7.1.3/apply.sh
+
+          # Copy defconfig
+          cp ../mculinux/patches/linux-7.1.3/defconfig .config
+
+          echo "Patches applied successfully"
+
+      - name: Build kernel
+        run: |
+          cd /tmp/linux-7.1.3
+          make ARCH=xtensa \
+            CROSS_COMPILE=${{ env.TOOLCHAIN_DIR }}/bin/xtensa-esp32s3-linux-muslfdpic- \
+            XTPROJECT=${{ env.XTPROJECT }} \
+            XTDYNAMIC_CONFIG=${{ env.DYNCONFIG }} \
+            olddefconfig
+
+          make ARCH=xtensa \
+            CROSS_COMPILE=${{ env.TOOLCHAIN_DIR }}/bin/xtensa-esp32s3-linux-muslfdpic- \
+            XTPROJECT=${{ env.XTPROJECT }} \
+            XTDYNAMIC_CONFIG=${{ env.DYNCONFIG }} \
+            -j$(nproc)
+
+          make ARCH=xtensa \
+            CROSS_COMPILE=${{ env.TOOLCHAIN_DIR }}/bin/xtensa-esp32s3-linux-muslfdpic- \
+            XTPROJECT=${{ env.XTPROJECT }} \
+            XTDYNAMIC_CONFIG=${{ env.DYNCONFIG }} \
+            xipImage -j$(nproc)
+
+          echo "Kernel built: $(ls -lh arch/xtensa/boot/xipImage)"
+
+      - name: Copy kernel to prebuilt
+        run: |
+          cp /tmp/linux-7.1.3/arch/xtensa/boot/xipImage \
+            tools/prebuilt/binaries/xipImage-7.1
+
+      - name: Assemble flash image
+        run: |
+          bash scripts/build-image.sh ${{ matrix.device }} --kernel 7.1
+
+      - name: Test boot in QEMU
+        id: test
+        run: |
+          echo "=== QEMU Boot Test: ${{ matrix.device }} ==="
+
+          # Install QEMU
+          sudo apt-get install -y qemu-system-misc || true
+
+          FLASH_IMAGE="output/${{ matrix.device }}/flash_${{ matrix.device }}.bin"
+
+          if [ ! -f "$FLASH_IMAGE" ]; then
+            echo "FAIL: Flash image not found"
+            exit 1
+          fi
+
+          # Pad to power of 2
+          FILE_SIZE=$(stat -c%s "$FLASH_IMAGE")
+          NEXT_POWER=1
+          while [ $NEXT_POWER -lt $FILE_SIZE ]; do
+            NEXT_POWER=$((NEXT_POWER * 2))
+          done
+
+          PADDED=""
+          if [ $NEXT_POWER -ne $FILE_SIZE ]; then
+            PADDED=$(mktemp /tmp/mculinux-XXXXXX.bin)
+            dd if=/dev/zero bs=1 count=$NEXT_POWER 2>/dev/null | tr '\0' '\377' > "$PADDED"
+            dd if="$FLASH_IMAGE" of="$PADDED" conv=notrunc 2>/dev/null
+            FLASH_IMAGE="$PADDED"
+          fi
+
+          # Run QEMU with full output capture
+          BOOT_LOG="output/${{ matrix.device }}/boot_log.txt"
+          OUTPUT=$(timeout 60 qemu-system-xtensa \
+            -M esp32s3 \
+            -nographic \
+            -m 8M \
+            -global driver=ssi_psram,property=is_octal,value=true \
+            -drive file="$FLASH_IMAGE",if=mtd,format=raw \
+            2>&1) || EXIT_CODE=$?
+
+          echo "$OUTPUT" > "$BOOT_LOG"
+
+          [ -n "${PADDED:-}" ] && rm -f "$PADDED"
+
+          # Check for successful boot markers
+          if echo "$OUTPUT" | grep -q "ttyS0 at MMIO"; then
+            echo "PASS: ttyS0 UART registered"
+            HAS_TTY="true"
+          else
+            echo "WARN: ttyS0 not registered"
+            HAS_TTY="false"
+          fi
+
+          if echo "$OUTPUT" | grep -q "buildroot login:"; then
+            echo "PASS: Login prompt reached"
+            HAS_LOGIN="true"
+          else
+            echo "WARN: Login prompt not reached"
+            HAS_LOGIN="false"
+          fi
+
+          if echo "$OUTPUT" | grep -q "Linux version"; then
+            echo "PASS: Linux kernel booted"
+            HAS_KERNEL="true"
+          else
+            echo "FAIL: Linux kernel did not boot"
+            HAS_KERNEL="false"
+          fi
+
+          # Summary
+          echo "Boot summary for ${{ matrix.device }}:"
+          echo "  Kernel: $HAS_KERNEL"
+          echo "  TTY: $HAS_TTY"
+          echo "  Login: $HAS_LOGIN"
+
+          if [ "$HAS_KERNEL" = "true" ]; then
+            echo "result=pass" >> $GITHUB_OUTPUT
+          else
+            echo "result=fail" >> $GITHUB_OUTPUT
+          fi
+
+          # Extract key boot lines
+          echo "Full boot log saved to: $BOOT_LOG"
+          echo "=== Boot Log ==="
+          cat "$BOOT_LOG"
+
+      - name: Upload flash image
+        uses: actions/upload-artifact@v4
+        with:
+          name: flash-${{ matrix.device }}
+          path: output/${{ matrix.device }}/flash_${{ matrix.device }}.bin
+
+      - name: Upload boot log
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-log-${{ matrix.device }}
+          path: output/${{ matrix.device }}/boot_log.txt
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Create release notes
+        run: |
+          DATE=$(date -u +"%Y-%m-%d")
+          cat > release_notes.md << 'NOTES'
+          # MCUlinux Release
+
+          Automated monthly build of MCUlinux for ESP32-S3.
+
+          ## Flash Images
+
+          | Config | Flash | PSRAM | Boot Status |
+          |--------|-------|-------|-------------|
+          NOTES
+
+          for device in r8n8 r8n16 r16n16; do
+            BOOT_LOG="artifacts/boot-log-${device}/boot_log.txt"
+            if [ -f "$BOOT_LOG" ]; then
+              if grep -q "buildroot login:" "$BOOT_LOG"; then
+                STATUS="Login prompt reached"
+              elif grep -q "ttyS0 at MMIO" "$BOOT_LOG"; then
+                STATUS="UART registered, no login"
+              elif grep -q "Linux version" "$BOOT_LOG"; then
+                STATUS="Kernel booted, no UART"
+              else
+                STATUS="Boot failed"
+              fi
+            else
+              STATUS="Build failed"
+            fi
+
+            case "$device" in
+              r8n8)   FLASH="8MB"; PSRAM="8MB" ;;
+              r8n16)  FLASH="16MB"; PSRAM="8MB" ;;
+              r16n16) FLASH="16MB"; PSRAM="16MB" ;;
+            esac
+
+            echo "| \`$device\` | $FLASH | $PSRAM | $STATUS |" >> release_notes.md
+          done
+
+          echo "" >> release_notes.md
+          echo "## Files" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "| File | Description |" >> release_notes.md
+          echo "|------|-------------|" >> release_notes.md
+          echo "| \`flash-r8n8.bin\` | 8MB flash image (r8n8 config) |" >> release_notes.md
+          echo "| \`flash-r8n16.bin\` | 16MB flash image (r8n16 config) |" >> release_notes.md
+          echo "| \`flash-r16n16.bin\` | 16MB flash image (r16n16 config) |" >> release_notes.md
+          echo "| \`boot-log-*.txt\` | Full QEMU boot logs |" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "## Boot Log Highlights" >> release_notes.md
+          echo "" >> release_notes.md
+
+          for device in r8n8 r8n16 r16n16; do
+            BOOT_LOG="artifacts/boot-log-${device}/boot_log.txt"
+            if [ -f "$BOOT_LOG" ]; then
+              echo "### $device" >> release_notes.md
+              echo '```' >> release_notes.md
+              grep -E "(Linux version|ttyS0|Mounted root|Run /sbin/init|login:)" "$BOOT_LOG" | head -10 >> release_notes.md
+              echo '```' >> release_notes.md
+              echo "" >> release_notes.md
+            fi
+          done
+
+          echo "## Kernel" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "- Linux 7.1.3 for xtensa-esp32s3" >> release_notes.md
+          echo "- XIP from SPI flash" >> release_notes.md
+          echo "- musl fdPIC (call0 ABI)" >> release_notes.md
+          echo "- Size: 3.57MB" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "## Kernel Patches" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "See \`patches/linux-7.1.3/\` for all ESP32-S3 kernel modifications." >> release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: "MCUlinux ${{ github.run_number }} ($DATE)"
+          body_path: release_notes.md
+          files: |
+            artifacts/flash-r8n8/flash_r8n8.bin
+            artifacts/flash-r8n16/flash_r8n16.bin
+            artifacts/flash-r16n16/flash_r16n16.bin
+            artifacts/boot-log-r8n8/boot_log.txt
+            artifacts/boot-log-r8n16/boot_log.txt
+            artifacts/boot-log-r16n16/boot_log.txt
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

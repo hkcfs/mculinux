@@ -1,6 +1,6 @@
 #!/bin/bash
 # Assemble flash image from components
-# Usage: ./scripts/build-image.sh [device] [--rootfs path] [--kernel 6.16|7.1]
+# Usage: ./scripts/build-image.sh [device] [--rootfs path]
 # Devices: r8n8 (default), r8n16, r16n16
 
 set -e
@@ -10,14 +10,12 @@ BUILD_DIR="$MCULINUX_DIR/build"
 OUTPUT_DIR="$MCULINUX_DIR/output"
 DEVICE="${1:-r8n8}"
 ROOTFS_OVERRIDE=""
-KERNEL_VERSION="7.1"
 
 # Parse args
 shift || true
 while [ $# -gt 0 ]; do
     case "$1" in
         --rootfs) ROOTFS_OVERRIDE="$2"; shift 2 ;;
-        --kernel) KERNEL_VERSION="$2"; shift 2 ;;
         *) shift ;;
     esac
 done
@@ -38,7 +36,6 @@ BUILDROOT_OUT="$BUILD_DIR/build-buildroot-esp32s3_devkit_c1_8m"
 PREBUILT_DIR="$MCULINUX_DIR/prebuilt/bootloader"
 PREBUILT_BINARIES="$MCULINUX_DIR/tools/prebuilt/binaries"
 ESP_HOSTED_DIR="$BUILD_DIR/esp-hosted/esp_hosted_ng/esp/esp_driver"
-KERNEL_PKG="$MCULINUX_DIR/mculinux-packages/packages/linux-esp32s3"
 
 # Find bootloader binaries: prebuilt binaries > prebuilt bootloader > esp-hosted
 if [ -f "$PREBUILT_BINARIES/network_adapter.bin" ]; then
@@ -63,38 +60,20 @@ else
     exit 1
 fi
 
-# Find xipImage: kernel version specific prebuilt > general prebuilt > kernel package > Buildroot
+# Find xipImage: prebuilt 7.1 > general prebuilt > Buildroot
 XIP_IMAGE=""
-case "$KERNEL_VERSION" in
-    7.1)
-        if [ -f "$PREBUILT_BINARIES/xipImage-7.1" ]; then
-            XIP_IMAGE="$PREBUILT_BINARIES/xipImage-7.1"
-        fi
-        ;;
-    6.16|*)
-        if [ -f "$PREBUILT_BINARIES/xipImage-6.16" ]; then
-            XIP_IMAGE="$PREBUILT_BINARIES/xipImage-6.16"
-        fi
-        ;;
-esac
-
-# Fallback to generic prebuilt or build outputs
-if [ -z "$XIP_IMAGE" ] || [ ! -f "$XIP_IMAGE" ]; then
-    if [ -f "$PREBUILT_BINARIES/xipImage" ]; then
-        XIP_IMAGE="$PREBUILT_BINARIES/xipImage"
-    elif [ -f "$KERNEL_PKG/output/xtensa-6.16-esp32/xipImage" ]; then
-        XIP_IMAGE="$KERNEL_PKG/output/xtensa-6.16-esp32/xipImage"
-    elif [ -f "$KERNEL_PKG/work/linux-xtensa/arch/xtensa/boot/xipImage" ]; then
-        XIP_IMAGE="$KERNEL_PKG/work/linux-xtensa/arch/xtensa/boot/xipImage"
-    elif [ -f "$BUILDROOT_OUT/images/xipImage" ]; then
-        XIP_IMAGE="$BUILDROOT_OUT/images/xipImage"
-    else
-        echo "ERROR: xipImage not found"
-        exit 1
-    fi
+if [ -f "$PREBUILT_BINARIES/xipImage-7.1" ]; then
+    XIP_IMAGE="$PREBUILT_BINARIES/xipImage-7.1"
+elif [ -f "$PREBUILT_BINARIES/xipImage" ]; then
+    XIP_IMAGE="$PREBUILT_BINARIES/xipImage"
+elif [ -f "$BUILDROOT_OUT/images/xipImage" ]; then
+    XIP_IMAGE="$BUILDROOT_OUT/images/xipImage"
+else
+    echo "ERROR: xipImage not found"
+    exit 1
 fi
 
-echo "Using kernel $KERNEL_VERSION: $XIP_IMAGE ($(du -h "$XIP_IMAGE" | cut -f1))"
+echo "Using kernel 7.1.3: $XIP_IMAGE ($(du -h "$XIP_IMAGE" | cut -f1))"
 
 # Check rootfs: prebuilt binaries > rootfs override > Buildroot
 ROOTFS=""
