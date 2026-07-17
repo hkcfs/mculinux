@@ -116,8 +116,13 @@ jobs:
         run: |
           echo "=== QEMU Boot Test: ${{ matrix.device }} ==="
 
-          # Install QEMU
-          sudo apt-get install -y qemu-system-misc || true
+          # Use custom QEMU with esp32s3 support from repo
+          QEMU="${{ github.workspace }}/tools/qemu/qemu/bin/qemu-system-xtensa"
+          if [ ! -x "$QEMU" ]; then
+            echo "FAIL: Custom QEMU not found at $QEMU"
+            echo "Please commit tools/qemu/qemu/bin/qemu-system-xtensa to repo"
+            exit 1
+          fi
 
           FLASH_IMAGE="output/${{ matrix.device }}/flash_${{ matrix.device }}.bin"
 
@@ -143,7 +148,7 @@ jobs:
 
           # Run QEMU with full output capture
           BOOT_LOG="output/${{ matrix.device }}/boot_log.txt"
-          OUTPUT=$(timeout 60 qemu-system-xtensa \
+          OUTPUT=$(timeout 60 "$QEMU" \
             -M esp32s3 \
             -nographic \
             -m 8M \
