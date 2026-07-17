@@ -99,7 +99,7 @@ fi
 if echo "$OUTPUT" | grep -q "ttyS0 at MMIO"; then
     HAS_TTY=true
 fi
-if echo "$OUTPUT" | grep -q "buildroot login:"; then
+if echo "$OUTPUT" | grep -q "buildroot login:\|/ # \|~ # "; then
     HAS_LOGIN=true
 fi
 
