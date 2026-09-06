@@ -6,7 +6,7 @@
 # Build from project root:
 #   docker build -f docker/Dockerfile --build-arg DOCKER_USER=$USER --build-arg DOCKER_USERID=$UID -t mculinux-builder .
 
-FROM ubuntu:22.04
+FROM ubuntu:latest
 
 ARG DOCKER_USER=builder
 ARG DOCKER_USERID=1000

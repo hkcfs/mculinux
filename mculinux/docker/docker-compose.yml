@@ -42,4 +42,4 @@ services:
   qemu-test:
     extends:
       service: builder
-    command: ./qemu-test.sh r8n8 30
+    command: ./qemu-test.sh r8n16 60

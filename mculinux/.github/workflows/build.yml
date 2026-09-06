@@ -116,13 +116,15 @@ jobs:
         run: |
           echo "=== QEMU Boot Test: ${{ matrix.device }} ==="
 
-          # Use custom QEMU with esp32s3 support from repo
-          QEMU="${{ github.workspace }}/tools/qemu/qemu/bin/qemu-system-xtensa"
+          # Espressif QEMU fork (esp32s3 machine); system qemu lacks it.
+          sudo apt-get update
+          sudo apt-get install -y libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
+          QEMU="$(bash scripts/install-qemu-esp32.sh)"
           if [ ! -x "$QEMU" ]; then
-            echo "FAIL: Custom QEMU not found at $QEMU"
-            echo "Please commit tools/qemu/qemu/bin/qemu-system-xtensa to repo"
+            echo "FAIL: Espressif qemu-system-xtensa unavailable"
             exit 1
           fi
+          echo "Using QEMU: $QEMU"
 
           FLASH_IMAGE="output/${{ matrix.device }}/flash_${{ matrix.device }}.bin"
 

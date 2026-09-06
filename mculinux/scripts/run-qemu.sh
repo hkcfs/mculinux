@@ -19,16 +19,25 @@ case "$DEVICE" in
     *)      QEMU_RAM="8M" ;;
 esac
 
-# Find QEMU: env > local build > system PATH
+# Find QEMU: env > repo binary > Espressif install script > system PATH
+# NOTE: system qemu-system-misc lacks the esp32s3 machine; prefer Espressif fork.
 if [ -n "${QEMU:-}" ] && [ -x "$QEMU" ]; then
     : # use QEMU from environment
 elif [ -x "$MCULINUX_DIR/tools/qemu/qemu/bin/qemu-system-xtensa" ]; then
     QEMU="$MCULINUX_DIR/tools/qemu/qemu/bin/qemu-system-xtensa"
+elif [ -x "$MCULINUX_DIR/scripts/install-qemu-esp32.sh" ]; then
+    QEMU="$("$MCULINUX_DIR/scripts/install-qemu-esp32.sh" 2>/dev/null)" || QEMU=""
+    if [ -z "$QEMU" ] || [ ! -x "$QEMU" ]; then
+        echo "SKIP: Espressif qemu-system-xtensa not available"
+        echo "  Run: ./scripts/install-qemu-esp32.sh"
+        exit 2
+    fi
 elif command -v qemu-system-xtensa &>/dev/null; then
+    echo "WARN: using system qemu-system-xtensa (likely missing esp32s3 machine)"
     QEMU=qemu-system-xtensa
 else
     echo "SKIP: qemu-system-xtensa not found"
-    echo "  Install: sudo apt-get install qemu-system-misc"
+    echo "  Run: ./scripts/install-qemu-esp32.sh"
     exit 2
 fi
 
