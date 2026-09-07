@@ -331,12 +331,17 @@ The kernel device tree blob (DTB) is compiled with these partition offsets baked
 
 ## CI/CD (GitHub Actions, free tier)
 
-Two pre-baked images on GHCR (`ghcr.io/hkcfs/mculinux/{builder,tester}`),
-built by `.github/workflows/docker.yml` on `mculinux/docker/**` changes +
-weekly refresh — set both packages to **Public** after first push:
+Three pre-baked images on GHCR, built by `.github/workflows/docker.yml`
+(builder/tester; toolchain manual — see below) on `mculinux/docker/**`
+changes + weekly refresh — set all packages to **Public** after first push:
 
-- **builder** (fat, `mculinux/docker/Dockerfile.builder`): apt deps,
-  autoconf 2.71, prebuilt musl toolchain (`/opt/crosstool-ng/...`),
+- **toolchain** (`:gcc14.0.1-muslfdpic`, `mculinux/docker/Dockerfile.toolchain`):
+  Ubuntu + the prebuilt musl cross-toolchain at `/opt/crosstool-ng/...`.
+  Built + pushed **manually** (CI checkouts lack the toolchain) on
+  toolchain updates only — freezes a known-good compiler as an immutable
+  layer (verified relocatable; links libc only).
+- **builder** (fat, `mculinux/docker/Dockerfile.builder`): `FROM` the
+  toolchain image + apt deps, autoconf 2.71,
   kernel + busybox sources (`/opt/src`), Espressif QEMU (`/opt/qemu`).
 - **tester** (slim, `mculinux/docker/Dockerfile.tester`): QEMU + runtime
   libs only. Fast path needs nothing else: assemble from committed
