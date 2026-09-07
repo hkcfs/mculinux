@@ -9,6 +9,8 @@
 ARG UBUNTU_TAG=24.04
 FROM ubuntu:${UBUNTU_TAG}
 
+ENV DEBIAN_FRONTEND=noninteractive
+
 # Bumpable source versions (keep in sync with Makefile KERNEL_VERSION).
 ARG TOOLCHAIN_URL=https://github.com/hkcfs/mculinux/releases/download/toolchain/xtensa-esp32s3-linux-muslfdpic.tar.xz
 ARG TOOLCHAIN_DIR=/opt/crosstool-ng/xtensa-esp32s3-linux-muslfdpic
