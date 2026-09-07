@@ -1,17 +1,22 @@
 # MCUlinux fat builder image (ghcr.io/hkcfs/mculinux/builder)
-# Layers on the versioned toolchain image + kernel/busybox sources + QEMU,
+# Toolchain (release tarball) + kernel/busybox sources + QEMU pre-baked,
 # so CI jobs never download or compile the same thing twice.
-# The toolchain itself lives in ghcr.io/hkcfs/mculinux/toolchain
-# (built manually via Dockerfile.toolchain — see its header).
+# (A FROM-toolchain-image variant was evaluated and dropped: a manually
+# pushed base stays private+unlinked, and CI's GITHUB_TOKEN gets 403
+# pulling it. The public release tarball needs no auth.)
 #
 # Build from repo root:
 #   docker build -f mculinux/docker/Dockerfile.builder -t mculinux-builder .
 # Normally built by .github/workflows/docker.yml (push + weekly refresh).
 
-ARG TOOLCHAIN_IMAGE=ghcr.io/hkcfs/mculinux/toolchain:gcc14.0.1-muslfdpic
-FROM ${TOOLCHAIN_IMAGE}
+ARG UBUNTU_TAG=24.04
+FROM ubuntu:${UBUNTU_TAG}
+
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Bumpable source versions (keep in sync with Makefile KERNEL_VERSION).
+ARG TOOLCHAIN_URL=https://github.com/hkcfs/mculinux/releases/download/toolchain/xtensa-esp32s3-linux-muslfdpic.tar.xz
+ARG TOOLCHAIN_DIR=/opt/crosstool-ng/xtensa-esp32s3-linux-muslfdpic
 ARG KERNEL_VERSIONS="7.1.3 7.2.3"
 ARG BUSYBOX_VERSION=1.38.0
 ARG QEMU_TARBALL_URL=https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20250228/qemu-xtensa-softmmu-esp_develop_9.2.2_20250228-x86_64-linux-gnu.tar.xz
@@ -37,7 +42,14 @@ RUN wget -q https://ftp.gnu.org/gnu/autoconf/autoconf-2.71.tar.xz && \
     cd .. && rm -rf autoconf-2.71 autoconf-2.71.tar.xz
 ENV PATH="/opt/autoconf-2.71/bin:${PATH}"
 
-# (Toolchain comes from the base image: /opt/crosstool-ng/... on PATH.)
+# Prebuilt musl cross-toolchain (~45 min to build; never again in CI).
+# Release asset is public (world-readable tarball), so no auth needed here.
+RUN mkdir -p /opt && \
+    wget -q "$TOOLCHAIN_URL" -O /tmp/toolchain.tar.xz && \
+    tar -xf /tmp/toolchain.tar.xz -C /opt/ && \
+    rm -f /tmp/toolchain.tar.xz && \
+    test -x "$TOOLCHAIN_DIR/bin/xtensa-esp32s3-linux-muslfdpic-gcc"
+ENV PATH="${TOOLCHAIN_DIR}/bin:${PATH}"
 
 # Kernel + busybox sources, compressed (jobs extract what they need).
 RUN mkdir -p /opt/src && \

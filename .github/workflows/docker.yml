@@ -2,10 +2,7 @@ name: Build Docker Images
 
 # Pre-baked builder + tester images live on GHCR so CI jobs never
 # download or compile the toolchain/sources/QEMU twice.
-# The toolchain base image (ghcr.io/.../toolchain) is EXCLUDED here:
-# CI checkouts lack the toolchain, so it is built + pushed manually
-# (see mculinux/docker/Dockerfile.toolchain) on toolchain updates only.
-# NOTE: after the first push, set packages to Public
+# NOTE: after the first push, set both packages to Public
 # (ghcr.io > package settings) or same-repo pulls need extra auth.
 
 on:
