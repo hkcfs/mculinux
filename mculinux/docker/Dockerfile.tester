@@ -1,0 +1,31 @@
+# MCUlinux slim tester image (ghcr.io/hkcfs/mculinux/tester)
+# QEMU + runtime only. Used by the fast CI path: assemble flash from
+# committed prebuilts and boot-test it. No toolchain, no sources.
+#
+# Build from repo root:
+#   docker build -f mculinux/docker/Dockerfile.tester -t mculinux-tester .
+# Normally built by .github/workflows/docker.yml.
+
+ARG UBUNTU_TAG=24.04
+FROM ubuntu:${UBUNTU_TAG}
+
+ARG QEMU_TARBALL_URL=https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20250228/qemu-xtensa-softmmu-esp_develop_9.2.2_20250228-x86_64-linux-gnu.tar.xz
+
+# QEMU runtime libs + basic tools for assemble/test scripts.
+RUN apt-get update && apt-get -y install --no-install-recommends \
+    bash coreutils file git ca-certificates \
+    libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Espressif QEMU (esp32s3 machine). test-qemu.sh uses $QEMU first.
+RUN mkdir -p /tmp/qextract /opt/qemu && \
+    wget -q "$QEMU_TARBALL_URL" -O /tmp/qemu.tar.xz && \
+    tar -xf /tmp/qemu.tar.xz -C /tmp/qextract && \
+    (test -d /tmp/qextract/qemu && cp -r /tmp/qextract/qemu/* /opt/qemu/ || \
+     cp -r /tmp/qextract/* /opt/qemu/) && \
+    rm -rf /tmp/qextract /tmp/qemu.tar.xz && \
+    test -x /opt/qemu/bin/qemu-system-xtensa
+ENV QEMU=/opt/qemu/bin/qemu-system-xtensa
+
+WORKDIR /work
+CMD ["bash"]

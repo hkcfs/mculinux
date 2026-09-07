@@ -27,14 +27,12 @@ jobs:
       - name: Build flash image from prebuilts
         run: |
           cd mculinux
-          make image DEVICE=${{ matrix.device }}
+          make image DEVICE=${{ matrix.device }} KERNEL_VERSION=7.2
 
-      - name: Install QEMU and boot test
+      - name: Boot test (QEMU auto-provisioned by test script)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-misc
           cd mculinux
-          make test DEVICE=${{ matrix.device }} TIMEOUT=60
+          make test DEVICE=${{ matrix.device }} TIMEOUT=60 KERNEL_VERSION=7.2
 
       - name: Package
         run: |

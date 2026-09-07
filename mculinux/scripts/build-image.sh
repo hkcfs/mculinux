@@ -10,15 +10,21 @@ BUILD_DIR="$MCULINUX_DIR/build"
 OUTPUT_DIR="$MCULINUX_DIR/output"
 DEVICE="${1:-r8n8}"
 ROOTFS_OVERRIDE=""
+KERNEL_VER="${KERNEL_VERSION:-7.1}"
 
 # Parse args
 shift || true
 while [ $# -gt 0 ]; do
     case "$1" in
         --rootfs) ROOTFS_OVERRIDE="$2"; shift 2 ;;
+        --kernel) KERNEL_VER="$2"; shift 2 ;;
         *) shift ;;
     esac
 done
+
+# Normalize full versions (7.2.3 from `make KERNEL_VERSION=...`) to the
+# prebuilt naming scheme (xipImage-7.2).
+KERNEL_VER="$(echo "$KERNEL_VER" | cut -d. -f1,2)"
 
 echo "=== Assembling Flash Image: $DEVICE ==="
 
@@ -60,9 +66,11 @@ else
     exit 1
 fi
 
-# Find xipImage: prebuilt 7.1 > general prebuilt > Buildroot
+# Find xipImage: versioned prebuilt > general prebuilt > Buildroot
 XIP_IMAGE=""
-if [ -f "$PREBUILT_BINARIES/xipImage-7.1" ]; then
+if [ -f "$PREBUILT_BINARIES/xipImage-$KERNEL_VER" ]; then
+    XIP_IMAGE="$PREBUILT_BINARIES/xipImage-$KERNEL_VER"
+elif [ -f "$PREBUILT_BINARIES/xipImage-7.1" ]; then
     XIP_IMAGE="$PREBUILT_BINARIES/xipImage-7.1"
 elif [ -f "$PREBUILT_BINARIES/xipImage" ]; then
     XIP_IMAGE="$PREBUILT_BINARIES/xipImage"
@@ -73,7 +81,7 @@ else
     exit 1
 fi
 
-echo "Using kernel 7.1.3: $XIP_IMAGE ($(du -h "$XIP_IMAGE" | cut -f1))"
+echo "Using kernel $KERNEL_VER: $XIP_IMAGE ($(du -h "$XIP_IMAGE" | cut -f1))"
 
 # Check rootfs: prebuilt binaries > rootfs override > Buildroot
 ROOTFS=""

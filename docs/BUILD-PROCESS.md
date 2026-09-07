@@ -329,6 +329,38 @@ The kernel device tree blob (DTB) is compiled with these partition offsets baked
 
 ---
 
+## CI/CD (GitHub Actions, free tier)
+
+Two pre-baked images on GHCR (`ghcr.io/hkcfs/mculinux/{builder,tester}`),
+built by `.github/workflows/docker.yml` on `mculinux/docker/**` changes +
+weekly refresh — set both packages to **Public** after first push:
+
+- **builder** (fat, `mculinux/docker/Dockerfile.builder`): apt deps,
+  autoconf 2.71, prebuilt musl toolchain (`/opt/crosstool-ng/...`),
+  kernel + busybox sources (`/opt/src`), Espressif QEMU (`/opt/qemu`).
+- **tester** (slim, `mculinux/docker/Dockerfile.tester`): QEMU + runtime
+  libs only. Fast path needs nothing else: assemble from committed
+  prebuilts and boot.
+
+`.github/workflows/build.yml` has two paths:
+
+- **fast** (push/PR): tester image, device matrix r8n8/r8n16/r16n16 in
+  parallel — `./scripts/build-image.sh <device>` + `./scripts/test-qemu.sh`.
+  Uses committed prebuilts, so **new `xipImage-*` binaries must be
+  committed** for CI to test them.
+- **full** (nightly cron 02:00 UTC + manual dispatch): builder image,
+  kernel matrix (currently `7.1.3`; add `7.2.3` once
+  `patches/linux-7.2.3/` is captured) — extract `/opt/src` tarball, apply
+  patches, `KCFLAGS="-Oz -fmerge-all-constants" xipImage`, assemble + test
+  all devices, upload artifacts.
+
+`make assemble`/`test` forward `KERNEL_VERSION` (full `7.2.3`) into
+`build-image.sh`, which normalizes to the prebuilt scheme (`7.2`).
+`test-qemu.sh` self-provisions QEMU via `install-qemu-esp32.sh` and honors
+`$QEMU` (pre-set to `/opt/qemu/...` in both images).
+
+---
+
 ## File Sizes Summary
 
 | Component | r8n8 | r8n16 | r16n16 |

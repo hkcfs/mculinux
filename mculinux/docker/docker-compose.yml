@@ -4,7 +4,7 @@ services:
   builder:
     build:
       context: ..
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/Dockerfile.builder
       args:
         DOCKER_USER: ${USER:-builder}
         DOCKER_USERID: ${UID:-1000}
@@ -43,3 +43,15 @@ services:
     extends:
       service: builder
     command: ./qemu-test.sh r8n16 60
+
+  tester:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tester
+    image: mculinux-tester
+    container_name: mculinux-tester
+    volumes:
+      - ..:/work
+    working_dir: /work
+    stdin_open: true
+    tty: true

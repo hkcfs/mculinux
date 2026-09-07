@@ -49,18 +49,18 @@ qemu: ## Install Espressif QEMU with esp32s3 machine
 	$(SCRIPTS)/install-qemu-esp32.sh
 
 assemble: ## Assemble flash image from components
-	$(SCRIPTS)/build-image.sh $(DEVICE)
+	KERNEL_VERSION=$(KERNEL_VERSION) $(SCRIPTS)/build-image.sh $(DEVICE)
 
 image: assemble ## Assemble flash image from prebuilt binaries (alias)
 
 test: assemble ## Build image then boot in QEMU with timeout (fail-fast)
-	$(SCRIPTS)/test-qemu.sh $(DEVICE) $(TIMEOUT)
+	KERNEL_VERSION=$(KERNEL_VERSION) $(SCRIPTS)/test-qemu.sh $(DEVICE) $(TIMEOUT)
 
 test-loop: assemble ## Build image then retry QEMU boot until pass (MAX_ATTEMPTS)
 	@attempt=1; \
 	while [ $$attempt -le $(MAX_ATTEMPTS) ]; do \
 		echo "=== make test-loop: attempt $$attempt/$(MAX_ATTEMPTS) (DEVICE=$(DEVICE)) ==="; \
-		if $(SCRIPTS)/test-qemu.sh $(DEVICE) $(TIMEOUT); then \
+		if KERNEL_VERSION=$(KERNEL_VERSION) $(SCRIPTS)/test-qemu.sh $(DEVICE) $(TIMEOUT); then \
 			echo "PASS on attempt $$attempt"; exit 0; \
 		fi; \
 		attempt=$$((attempt+1)); sleep 2; \
