@@ -1,19 +1,26 @@
 #!/bin/bash
 # Build WiFi bootloader (network_adapter.bin)
-# Uses espressif/idf:v5.1 Docker image
+# Uses espressif/idf:latest Docker image (tracks IDF master).
+# Override with IDF_IMAGE_TAG=vX.Y for a pinned release.
 # Usage: ./scripts/build-bootloader.sh [--trimmed]
+#
+# NOTE: esp-hosted must be API-compatible with the IDF image used.
+# Latest IDF + esp-hosted master are kept in sync by Espressif; a pinned
+# IDF tag needs the matching esp-hosted branch (see setup.sh).
 
 set -e
 
 MCULINUX_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+BUILD_DIR="$MCULINUX_DIR/build"
+IDF_TAG="${IDF_IMAGE_TAG:-latest}"
 ESP_DRIVER="$MCULINUX_DIR/build/esp-hosted/esp_hosted_ng/esp/esp_driver"
 USE_TRIMMED="${1:---trimmed}"
 
-echo "=== Building WiFi Bootloader ==="
+echo "=== Building WiFi Bootloader (espressif/idf:$IDF_TAG) ==="
 
 if [ ! -d "$ESP_DRIVER" ]; then
     echo "ERROR: esp-hosted not found at $ESP_DRIVER"
-    echo "Run: cd build && git clone https://github.com/jcmvbkbc/esp-hosted -b ipc-5.1.1"
+    echo "Run: cd build && git clone https://github.com/jcmvbkbc/esp-hosted"
     exit 1
 fi
 
@@ -23,7 +30,7 @@ sudo docker run --rm \
   -u "$(id -u)" \
   -e HOME=/tmp \
   -e IDF_GIT_SAFE_DIR='/project' \
-  espressif/idf:v5.1 \
+  "espressif/idf:$IDF_TAG" \
   bash -c "
 set -e
 

@@ -4,8 +4,8 @@
 # Focus device: r8n16 (16MB flash, 8MB PSRAM)
 DEVICE ?= r8n16
 TIMEOUT ?= 60
-# Latest stable per kernel.org (2026-09-02): 7.2.3
-KERNEL_VERSION ?= 7.2.3
+# Kernel tracks latest stable (resolve: make latest). Pin to test an older one.
+KERNEL_VERSION ?= latest
 MAX_ATTEMPTS ?= 3
 SCRIPTS := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))scripts
 
@@ -30,20 +30,26 @@ help: ## Show available targets
 toolchain: ## Build xtensa-esp32s3-linux-muslfdpic toolchain
 	$(SCRIPTS)/setup.sh toolchain
 
-kernel: ## Build Linux xipImage (KERNEL_VERSION)
+kernel: ## Build Linux xipImage (tinyconfig + fragment, latest stable)
 	KERNEL_VERSION=$(KERNEL_VERSION) $(SCRIPTS)/build-kernel.sh
 
-busybox: ## Build busybox NOMMU (hush + init)
+busybox: ## Build busybox NOMMU (latest stable) + assemble rootfs
 	$(SCRIPTS)/build-busybox-nommu.sh
 
-init: ## Build static init (mounts /proc,/sys,/etc jffs2; respawns hush)
-	$(SCRIPTS)/build-busybox-nommu.sh init-only
+init: ## Rebuild static init + reassemble rootfs
+	$(SCRIPTS)/build-rootfs.sh
 
-bootloader: ## Build ESP32-S3 bootloader binaries
+rootfs: ## Assemble EROFS rootfs from skeleton (needs make busybox first)
+	$(SCRIPTS)/build-rootfs.sh
+
+etc: ## Build etc.jffs2 from rootfs/etc (needs mkfs.jffs2)
+	$(SCRIPTS)/build-etc-jffs2.sh
+
+partitions: ## Generate partition-table binaries from partitions/*.csv
+	$(SCRIPTS)/build-partition-tables.sh
+
+bootloader: ## Build ESP32-S3 bootloader binaries (idf:latest)
 	$(SCRIPTS)/build-bootloader.sh
-
-rootfs: busybox init ## Assemble EROFS rootfs + etc.jffs2
-	$(SCRIPTS)/build-busybox-nommu.sh rootfs-only
 
 qemu: ## Install Espressif QEMU with esp32s3 machine
 	$(SCRIPTS)/install-qemu-esp32.sh

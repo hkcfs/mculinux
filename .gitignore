@@ -12,6 +12,8 @@ mculinux/build/xtensa-dynconfig/*
 !mculinux/build/xtensa-dynconfig/esp32s3.so
 mculinux/build/autoconf-*/
 mculinux/build/build-buildroot-*/
+mculinux/build/kernel-src/
+mculinux/build/.kernel-version
 mculinux/build/linux-*src/
 *.o
 *.elf
@@ -53,3 +55,6 @@ mculinux/tools/prebuilt/binaries/*.bak
 # Kernel package build artifacts
 mculinux-packages/packages/linux-esp32s3/work/
 mculinux-packages/packages/linux-esp32s3/output/
+
+# Never commit assembled/stale images back into prebuilts
+mculinux/tools/prebuilt/binaries/flash_*.bin

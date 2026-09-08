@@ -8,13 +8,12 @@ set -e
 
 MCULINUX_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$MCULINUX_DIR/build"
-BUILDROOT_OUT="$BUILD_DIR/build-buildroot-esp32s3_devkit_c1_8m"
-TARGET_DIR="$BUILDROOT_OUT/target"
+TARGET_DIR="${ROOTFS_STAGING:-/tmp/rootfs-staging}"
 OUTPUT_DIR="$MCULINUX_DIR/output/compression"
 
 if [ ! -d "$TARGET_DIR" ]; then
-    echo "ERROR: Buildroot target not found at $TARGET_DIR"
-    echo "Run: make kernel first"
+    echo "ERROR: rootfs staging not found at $TARGET_DIR"
+    echo "Run: make rootfs first"
     exit 1
 fi
 
@@ -24,27 +23,16 @@ echo "=== Filesystem Compression Comparison ==="
 echo "Source: $TARGET_DIR"
 echo ""
 
-# Get tools from Buildroot
-HOST_BIN="$BUILDROOT_OUT/host/bin"
-
 # Check available tools
 HAS_SQUASHFS=0
 HAS_EROFS=0
 
-if command -v mksquashfs >/dev/null 2>&1; then
-    HAS_SQUASHFS=1
-fi
+command -v mksquashfs >/dev/null 2>&1 && HAS_SQUASHFS=1
+command -v mkfs.erofs >/dev/null 2>&1 && HAS_EROFS=1
 
-if command -v mkfs.erofs >/dev/null 2>&1; then
-    HAS_EROFS=1
-fi
-
-# Install tools if missing
+# Install tools if missing (no sudo here — install them yourself)
 if [ $HAS_SQUASHFS -eq 0 ] || [ $HAS_EROFS -eq 0 ]; then
-    echo "Installing compression tools..."
-    sudo apt-get update -qq && sudo apt-get install -y -qq squashfs-tools erofs-utils 2>/dev/null || true
-    command -v mksquashfs >/dev/null 2>&1 && HAS_SQUASHFS=1
-    command -v mkfs.erofs >/dev/null 2>&1 && HAS_EROFS=1
+    echo "WARN: missing tools (need squashfs-tools and/or erofs-utils), skipping those variants"
 fi
 
 echo "Tools: squashfs=$HAS_SQUASHFS erofs=$HAS_EROFS"

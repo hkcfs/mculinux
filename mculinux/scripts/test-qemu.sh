@@ -71,15 +71,26 @@ for attempt in 1 2 3; do
     # usually drops straight to a shell, so stray input is harmless, and the
     # bundles repeat in case the guest is slow to reach userspace.
     OUTPUT=$( {
+        # pe = paced echo: the emulated UART drops bursty input, so every
+        # probe line gets a breath before the next one or whole lines vanish.
+        pe() { echo "$1"; sleep 1; }
         for i in 1 2 3 4 5 6; do
             sleep 12
-            echo "root"
-            echo "---FREE---"; echo "free"
-            echo "---MEMINFO---"; echo "cat /proc/meminfo"
-            echo "---DF---"; echo "df -h; df -i"
-            echo "---MEASURED---"
+            pe "root"
+            pe "---FREE---"; pe "free"
+            pe "---MEMINFO---"; pe "cat /proc/meminfo"
+            pe "---DF---"; pe "df -h; df -i"
+            pe "---MOUNTS---"; pe "mount | grep jffs2"
+            pe "touch /etc/.wtest && echo ETC_RW_OK"
+            pe "rm -f /etc/.wtest"
+            pe "touch /data/.wtest && echo DATA_RW_OK"
+            pe "rm -f /data/.wtest"
+            pe "---MEASURED---"
         done
-        sleep 300
+        # Keep stdin open a little past the last bundle so QEMU never sees
+        # EOF. Bounded (not sleep 300): after `timeout` kills QEMU each
+        # attempt must end promptly, or 3 attempts cost ~20min on failure.
+        sleep 20
     } | timeout "$TIMEOUT" "$QEMU" \
         -M esp32s3 \
         -nographic \
@@ -122,6 +133,10 @@ HAS_KERNEL=false
 HAS_TTY=false
 HAS_LOGIN=false
 HAS_MEASURE=false
+HAS_ETC_JFFS2=false
+HAS_ETC_RW=false
+HAS_DATA_JFFS2=false
+HAS_DATA_RW=false
 
 if echo "$OUTPUT" | grep -q "Linux version"; then
     HAS_KERNEL=true
@@ -135,18 +150,36 @@ fi
 if echo "$OUTPUT" | grep -q -- "---MEASURED---"; then
     HAS_MEASURE=true
 fi
+if echo "$OUTPUT" | grep -qE " on /etc type jffs2"; then
+    HAS_ETC_JFFS2=true
+fi
+# Anchored (^...$) so the echoed command line itself (which contains the
+# token) can't match — only the guest's actual output line. CRs stripped
+# first: the console emits stray carriage returns that break $ anchors.
+OUTPUT_CLEAN="$(echo "$OUTPUT" | tr -d '\r')"
+if echo "$OUTPUT_CLEAN" | grep -qx "ETC_RW_OK"; then
+    HAS_ETC_RW=true
+fi
+if echo "$OUTPUT" | grep -qE " on /data type jffs2"; then
+    HAS_DATA_JFFS2=true
+fi
+if echo "$OUTPUT_CLEAN" | grep -qx "DATA_RW_OK"; then
+    HAS_DATA_RW=true
+fi
 
-# Guest memory/storage report: full outputs of the last captured block.
+# Guest memory/storage/mount report: full outputs of the last captured block.
 # Note on "free disk": / (erofs) is read-only by design and always shows
-# 100% — it is not writable free space. Writable space = tmpfs lines
-# (and /etc jffs2 if CONFIG_JFFS2_FS is ever enabled; currently off).
+# 100% — it is not writable free space. Writable space = tmpfs lines plus
+# /etc, which is jffs2 (CONFIG_JFFS2_FS via the kernel fragment).
 report_measure() {
     echo "--- Guest: free (full) ---"
     echo "$OUTPUT" | sed -n '/---FREE---/,/---MEMINFO---/p' | tail -8
     echo "--- Guest: meminfo (full) ---"
     echo "$OUTPUT" | sed -n '/---MEMINFO---/,/---DF---/p' | tail -55
     echo "--- Guest: df -h + df -i (full) ---"
-    echo "$OUTPUT" | sed -n '/---DF---/,/---MEASURED---/p' | tail -16
+    echo "$OUTPUT" | sed -n '/---DF---/,/---MOUNTS---/p' | tail -16
+    echo "--- Guest: mounts + /etc writability ---"
+    echo "$OUTPUT" | sed -n '/---MOUNTS---/,/---MEASURED---/p' | tail -8
 }
 
 # Results
@@ -156,6 +189,10 @@ echo "  Kernel: $HAS_KERNEL"
 echo "  TTY:    $HAS_TTY"
 echo "  Login:  $HAS_LOGIN"
 echo "  Measured: $HAS_MEASURE"
+echo "  /etc jffs2: $HAS_ETC_JFFS2"
+echo "  /etc writable: $HAS_ETC_RW"
+echo "  /data jffs2: $HAS_DATA_JFFS2"
+echo "  /data writable: $HAS_DATA_RW"
 echo ""
 
 if $HAS_LOGIN; then

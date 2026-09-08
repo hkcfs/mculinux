@@ -9,7 +9,7 @@
 #   docker build -f mculinux/docker/Dockerfile.builder -t mculinux-builder .
 # Normally built by .github/workflows/docker.yml (push + weekly refresh).
 
-ARG UBUNTU_TAG=24.04
+ARG UBUNTU_TAG=latest
 FROM ubuntu:${UBUNTU_TAG}
 
 # /bin/sh is dash here; the fetch() fallback below needs bash substitution.
@@ -17,26 +17,25 @@ SHELL ["/bin/bash", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Bumpable source versions (keep in sync with Makefile KERNEL_VERSION).
+# Bumpable source versions (kernel is always latest-stable, resolved below;
+# busybox is always latest-stable, resolved via git tags below).
 ARG TOOLCHAIN_URL=https://github.com/hkcfs/mculinux/releases/download/toolchain/xtensa-esp32s3-linux-muslfdpic.tar.xz
 ARG TOOLCHAIN_DIR=/opt/crosstool-ng/xtensa-esp32s3-linux-muslfdpic
-# Busybox version to prefetch (kernel is always latest-stable, resolved above).
-ARG BUSYBOX_VERSION=1.38.0
 ARG QEMU_TARBALL_URL=https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20250228/qemu-xtensa-softmmu-esp_develop_9.2.2_20250228-x86_64-linux-gnu.tar.xz
 
-# Build dependencies (crosstool-NG/Buildroot/kernel) + QEMU runtime libs.
+# Build dependencies (toolchain/kernel/busybox) + QEMU runtime libs.
 RUN apt-get update && apt-get -y install --no-install-recommends \
     gperf bison flex texinfo help2man gawk libtool-bin \
     git unzip rsync zlib1g zlib1g-dev xz-utils curl ca-certificates \
     cmake wget bzip2 g++ gcc make file patch python3 python3-dev python3-pip \
     python3-venv cpio bc libncurses-dev libssl-dev libexpat1-dev \
     libusb-1.0-0 libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 \
-    fakeroot libfakeroot \
+    fakeroot libfakeroot erofs-utils mtd-utils \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/python3 /usr/bin/python \
     && ln -sf /usr/lib/x86_64-linux-gnu/fakeroot/libfakeroot-sysv.so /usr/lib/x86_64-linux-gnu/libfakeroot.so
 
-# Autoconf 2.71 (required by Buildroot; distro ships older).
+# Autoconf 2.71 (kernel/busybox configure scripts need it; distro ships older).
 RUN wget -q https://ftp.gnu.org/gnu/autoconf/autoconf-2.71.tar.xz && \
     tar -xf autoconf-2.71.tar.xz && \
     cd autoconf-2.71 && \
@@ -69,10 +68,30 @@ RUN mkdir -p /opt/src && \
     } && \
     fetch "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${LATEST_STABLE}.tar.xz" \
       "/opt/src/linux-${LATEST_STABLE}.tar.xz" && \
-    fetch "https://busybox.net/downloads/busybox-${BUSYBOX_VERSION}.tar.bz2" \
-      "/opt/src/busybox-${BUSYBOX_VERSION}.tar.bz2" && \
     ls -lh /opt/src/ && \
     test "$(ls /opt/src/linux-*.tar.xz 2>/dev/null | wc -l)" -ge 1
+
+# Busybox source, always latest stable: shallow git clone of the newest tag
+# (max over all remotes — some mirrors go stale; tarballs are unreliable).
+# Best-effort cache only: CI re-resolves at job time. Warn, don't fail —
+# a blip here must not break the whole image.
+RUN BBTAGS="$(git ls-remote --tags git://git.busybox.net/busybox 2>/dev/null; \
+      git ls-remote --tags https://git.busybox.net/busybox 2>/dev/null; \
+      git ls-remote --tags https://github.com/mirror/busybox 2>/dev/null)" && \
+    BBTAG="$(echo "$BBTAGS" | grep -oE 'refs/tags/[0-9]+_[0-9]+_[0-9]+$' \
+      | sed 's|refs/tags/||' | sort -uV | tail -1)" && \
+    if [ -n "$BBTAG" ]; then \
+      BBVER="$(echo "$BBTAG" | tr '_' '.')" && \
+      echo "$BBVER" > /opt/src/busybox.version && \
+      (git clone --depth 1 --branch "$BBTAG" git://git.busybox.net/busybox \
+        "/opt/src/busybox-$BBVER" 2>/dev/null || \
+       git clone --depth 1 --branch "$BBTAG" https://github.com/mirror/busybox \
+        "/opt/src/busybox-$BBVER" 2>/dev/null || \
+       echo "WARN: busybox prefetch clone failed") && \
+      ls -d /opt/src/busybox-* 2>/dev/null || echo "WARN: no busybox source cached"; \
+    else \
+      echo "WARN: could not resolve latest busybox tag, skipping prefetch"; \
+    fi
 
 # Espressif QEMU (esp32s3 machine). test-qemu.sh uses $QEMU first.
 RUN mkdir -p /tmp/qextract /opt/qemu && \

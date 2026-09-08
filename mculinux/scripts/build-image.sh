@@ -10,7 +10,7 @@ BUILD_DIR="$MCULINUX_DIR/build"
 OUTPUT_DIR="$MCULINUX_DIR/output"
 DEVICE="${1:-r8n8}"
 ROOTFS_OVERRIDE=""
-KERNEL_VER="${KERNEL_VERSION:-7.1}"
+KERNEL_VERSION="${KERNEL_VERSION:-latest}"
 
 # Parse args
 shift || true
@@ -22,38 +22,43 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Normalize full versions (7.2.3 from `make KERNEL_VERSION=...`) to the
-# prebuilt naming scheme (xipImage-7.2).
-KERNEL_VER="$(echo "$KERNEL_VER" | cut -d. -f1,2)"
+# Resolve kernel version: explicit --kernel, KERNEL_VERSION env, or the
+# version stamp left by build-kernel.sh. Never guess silently.
+if [ "$KERNEL_VERSION" = "latest" ]; then
+    if [ -f "$BUILD_DIR/.kernel-version" ]; then
+        KERNEL_VERSION="$(cat "$BUILD_DIR/.kernel-version")"
+    else
+        echo "ERROR: KERNEL_VERSION=latest but no build/build/.kernel-version stamp."
+        echo "  Run: make kernel  (or pass --kernel 7.2)"
+        exit 1
+    fi
+fi
+
+# Normalize full versions (7.2.4) to the prebuilt naming scheme (xipImage-7.2).
+KERNEL_VER="$(echo "$KERNEL_VERSION" | cut -d. -f1,2)"
 
 echo "=== Assembling Flash Image: $DEVICE ==="
 
-# Flash size
+# Flash size + matching partition table (data partition fills the tail:
+# 768K on 8MB, 8.75MB on 16MB)
 case "$DEVICE" in
-    r8n8)   FLASH_SIZE_MB=8 ;;
-    *)      FLASH_SIZE_MB=16 ;;
+    r8n8)   FLASH_SIZE_MB=8; TABLE_SUFFIX=8m ;;
+    *)      FLASH_SIZE_MB=16; TABLE_SUFFIX=16m ;;
 esac
 
 FLASH_SIZE_BYTES=$((FLASH_SIZE_MB * 1024 * 1024))
 FLASH_IMAGE="$OUTPUT_DIR/${DEVICE}/flash_${DEVICE}.bin"
 
-# Component paths
-BUILDROOT_OUT="$BUILD_DIR/build-buildroot-esp32s3_devkit_c1_8m"
-PREBUILT_DIR="$MCULINUX_DIR/prebuilt/bootloader"
+# Component paths (all committed prebuilts, refreshed by make kernel/busybox/etc or CI)
 PREBUILT_BINARIES="$MCULINUX_DIR/tools/prebuilt/binaries"
 ESP_HOSTED_DIR="$BUILD_DIR/esp-hosted/esp_hosted_ng/esp/esp_driver"
 
-# Find bootloader binaries: prebuilt binaries > prebuilt bootloader > esp-hosted
+# Find bootloader binaries: prebuilt binaries > esp-hosted build tree
 if [ -f "$PREBUILT_BINARIES/network_adapter.bin" ]; then
     BOOTLOADER_BIN="$PREBUILT_BINARIES/bootloader.bin"
-    PARTITION_BIN="$PREBUILT_BINARIES/partition-table.bin"
+    PARTITION_BIN="$PREBUILT_BINARIES/partition-table-$TABLE_SUFFIX.bin"
     NETWORK_BIN="$PREBUILT_BINARIES/network_adapter.bin"
-    echo "Using prebuilt binaries from tools/prebuilt/"
-elif [ -f "$PREBUILT_DIR/network_adapter.bin" ]; then
-    BOOTLOADER_BIN="$PREBUILT_DIR/bootloader.bin"
-    PARTITION_BIN="$PREBUILT_DIR/partition-table.bin"
-    NETWORK_BIN="$PREBUILT_DIR/network_adapter.bin"
-    echo "Using prebuilt bootloader binaries"
+    echo "Using prebuilt binaries from tools/prebuilt/ (partition table: $TABLE_SUFFIX)"
 elif [ -f "$ESP_HOSTED_DIR/network_adapter/build/network_adapter.bin" ]; then
     BOOTLOADER_BIN="$ESP_HOSTED_DIR/network_adapter/build/bootloader/bootloader.bin"
     PARTITION_BIN="$ESP_HOSTED_DIR/network_adapter/build/partition_table/partition-table.bin"
@@ -62,42 +67,43 @@ elif [ -f "$ESP_HOSTED_DIR/network_adapter/build/network_adapter.bin" ]; then
 else
     echo "ERROR: No bootloader binaries found"
     echo "  Run: make bootloader"
-    echo "  Or ensure prebuilt/ exists"
     exit 1
 fi
+[ -f "$PARTITION_BIN" ] || {
+    echo "ERROR: partition table missing: $PARTITION_BIN"
+    echo "  Run: ./scripts/build-partition-tables.sh"
+    exit 1
+}
 
-# Find xipImage: versioned prebuilt > general prebuilt > Buildroot
+# Find xipImage: versioned prebuilt only (built by make kernel / CI full).
 XIP_IMAGE=""
 if [ -f "$PREBUILT_BINARIES/xipImage-$KERNEL_VER" ]; then
     XIP_IMAGE="$PREBUILT_BINARIES/xipImage-$KERNEL_VER"
-elif [ -f "$PREBUILT_BINARIES/xipImage-7.1" ]; then
-    XIP_IMAGE="$PREBUILT_BINARIES/xipImage-7.1"
-elif [ -f "$PREBUILT_BINARIES/xipImage" ]; then
-    XIP_IMAGE="$PREBUILT_BINARIES/xipImage"
-elif [ -f "$BUILDROOT_OUT/images/xipImage" ]; then
-    XIP_IMAGE="$BUILDROOT_OUT/images/xipImage"
 else
-    echo "ERROR: xipImage not found"
+    echo "ERROR: xipImage-$KERNEL_VER not found in $PREBUILT_BINARIES"
+    echo "  Run: make kernel KERNEL_VERSION=$KERNEL_VER"
     exit 1
 fi
 
 echo "Using kernel $KERNEL_VER: $XIP_IMAGE ($(du -h "$XIP_IMAGE" | cut -f1))"
 
-# Check rootfs: prebuilt binaries > rootfs override > Buildroot
+# Check rootfs: override > committed prebuilt (rebuilt by make busybox / CI full)
 ROOTFS=""
 if [ -n "$ROOTFS_OVERRIDE" ] && [ -f "$ROOTFS_OVERRIDE" ]; then
     ROOTFS="$ROOTFS_OVERRIDE"
 elif [ -f "$PREBUILT_BINARIES/rootfs.erofs" ]; then
     ROOTFS="$PREBUILT_BINARIES/rootfs.erofs"
-elif [ -f "$BUILDROOT_OUT/images/rootfs.erofs" ]; then
-    ROOTFS="$BUILDROOT_OUT/images/rootfs.erofs"
+else
+    echo "ERROR: rootfs.erofs not found. Run: make busybox"
+    exit 1
 fi
 
-# Find etc.jffs2: prebuilt binaries > Buildroot
+# etc.jffs2: committed prebuilt (rebuilt by make etc / CI full)
 if [ -f "$PREBUILT_BINARIES/etc.jffs2" ]; then
     JFFS2="$PREBUILT_BINARIES/etc.jffs2"
 else
-    JFFS2="$BUILDROOT_OUT/images/etc.jffs2"
+    echo "ERROR: etc.jffs2 not found. Run: make etc"
+    exit 1
 fi
 
 # Verify all components exist
@@ -122,6 +128,19 @@ fi
 # Create flash image
 mkdir -p "$OUTPUT_DIR/${DEVICE}"
 echo "Creating ${FLASH_SIZE_MB}MB flash image..."
+
+# Stage the bootloader into the output dir first; 16MB+ devices need the
+# image header patched to declare the real flash size or the ESP-ROM
+# rejects the partition table (partitions past 8MB). The committed
+# prebuilt keeps its 8MB header (correct for r8n8).
+cp "$BOOTLOADER_BIN" "$OUTPUT_DIR/${DEVICE}/bootloader.bin"
+if [ "$FLASH_SIZE_MB" -ne 8 ]; then
+    python3 "$MCULINUX_DIR/scripts/patch-bootloader-flashsize.py" \
+        "$OUTPUT_DIR/${DEVICE}/bootloader.bin" \
+        "$OUTPUT_DIR/${DEVICE}/bootloader.bin" "$FLASH_SIZE_MB" \
+        || { echo "ERROR: bootloader flash-size patch failed"; exit 1; }
+fi
+BOOTLOADER_BIN="$OUTPUT_DIR/${DEVICE}/bootloader.bin"
 
 dd if=/dev/zero bs=1M count=$FLASH_SIZE_MB 2>/dev/null | tr '\0' '\377' > "$FLASH_IMAGE"
 

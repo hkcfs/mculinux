@@ -1,0 +1,16 @@
+# MCUlinux partition table, 8MB flash.
+# Mirrors the previously shipped table's entries 0-5 EXACTLY (labels, offsets,
+# types) with two deliberate fixes: nvs length 16K->4K (it overran phy_init)
+# and rootfs 3MB->2.25MB (erofs image is ~1.1MB). `data` fills the tail:
+# 0x740000 + 0xC0000 = 0x800000 (768KB JFFS2, mtdblock6).
+# 16MB devices use partition-table-16m.csv (same entries 0-5, data extended
+# to the 16MB end); mtdblock indices are identical on all devices.
+# Generated with: scripts/build-partition-tables.sh (vendored gen_esp32part.py)
+## Label          type  ST      Offset      Length
+nvs,              1,    2,      0x9000,     0x1000
+phy_init,         1,    1,      0xa000,     0x1000
+factory,          0,    0,      0x10000,    0xa0000
+etc,              0x40, 0,      0xb0000,    0x70000
+linux,            0,    1,      0x120000,   0x3d0000
+rootfs,           1,    3,      0x500000,   0x240000
+data,             0x40, 2,      0x740000,   0xc0000

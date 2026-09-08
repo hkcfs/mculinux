@@ -68,12 +68,16 @@ jobs:
           retention-days: 30
 
   full:
-    # Automation policy: ALWAYS build the latest stable kernel and apply our
-    # patches. Applies cleanly -> green. Fails -> loud red error, we make new
-    # patches. Never pin a "known good" version to avoid testing the new one.
-    name: full (latest stable + ESP32 patches)
+    # Automation policy: ALWAYS build the latest stable kernel AND latest
+    # stable busybox, apply our patches, rebuild everything. Applies cleanly
+    # -> green. Fails -> loud red error, we make new patches. Never pin a
+    # "known good" version to avoid testing the new one. Green builds commit
+    # the fresh binaries back, so the fast path always tests current bits.
+    name: full (latest stable kernel + busybox, rebuild all)
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
     container:
       image: ghcr.io/${{ github.repository }}/builder:latest
       credentials:
@@ -86,73 +90,72 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Mark workspace safe
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Resolve latest stable kernel
-        id: kver
+      - name: Resolve latest versions
+        id: vers
         run: |
-          # Owner's snippet, verbatim. Same logic as scripts/latest-stable.sh.
-          KVER="$(curl -s --max-time 30 https://kernel.org \
-            | grep -A 1 'stable:' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
-          if [ -z "$KVER" ]; then echo "FAIL: could not resolve latest stable from kernel.org"; exit 1; fi
-          echo "Latest stable: $KVER"
-          echo "version=$KVER" >> $GITHUB_OUTPUT
+          cd mculinux
+          KVER="$(./scripts/latest-stable.sh)"
+          BVER="$(./scripts/latest-busybox.sh)"
+          [ -n "$KVER" ] || { echo "FAIL: kernel version resolution"; exit 1; }
+          [ -n "$BVER" ] || { echo "FAIL: busybox version resolution"; exit 1; }
+          echo "Latest stable: kernel $KVER, busybox $BVER"
+          echo "kver=$KVER" >> $GITHUB_OUTPUT
+          echo "bver=$BVER" >> $GITHUB_OUTPUT
 
-      - name: Extract kernel source (pre-fetched in image, else download)
+      - name: Build kernel (tinyconfig + fragment, strict patches)
+        env:
+          KERNEL_VERSION: ${{ steps.vers.outputs.kver }}
+          XTENSA_CROSS: xtensa-esp32s3-linux-muslfdpic-
         run: |
-          KVER='${{ steps.kver.outputs.version }}'
-          if [ -f "/opt/src/linux-$KVER.tar.xz" ]; then
-            tar -xf "/opt/src/linux-$KVER.tar.xz" -C /tmp
-          else
-            echo "Not pre-fetched, downloading linux-$KVER..."
-            curl -sL --retry 3 "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-$KVER.tar.xz" \
-              -o "/tmp/linux-$KVER.tar.xz" || \
-            curl -sL --retry 5 "https://mirrors.edge.kernel.org/pub/linux/kernel/v7.x/linux-$KVER.tar.xz" \
-              -o "/tmp/linux-$KVER.tar.xz"
-            tar -xf "/tmp/linux-$KVER.tar.xz" -C /tmp
-          fi
-          echo "KSRC=/tmp/linux-$KVER" >> $GITHUB_ENV
+          cd mculinux
+          ./scripts/build-kernel.sh
 
-      - name: Apply ESP32 patches (STRICT — any failure is a red build)
-        working-directory: ${{ env.KSRC }}
+      - name: Build busybox + rootfs (strict NOMMU patch)
+        env:
+          BUSYBOX_VERSION: ${{ steps.vers.outputs.bver }}
+          XTENSA_CROSS: xtensa-esp32s3-linux-muslfdpic-
         run: |
-          KPATCH="$GITHUB_WORKSPACE/mculinux/patches/linux-esp32"
-          test -d "$KPATCH" || { echo "FAIL: $KPATCH missing"; exit 1; }
-          for patch in "$KPATCH"/0*.patch; do
-            echo "Applying $(basename "$patch")..."
-            patch -p1 --batch --forward < "$patch" || exit 1
-          done
-          cp "$KPATCH/defconfig" .config
-          echo "All ESP32 patches applied cleanly"
+          cd mculinux
+          ./scripts/build-busybox-nommu.sh
 
-      - name: Build xipImage
-        working-directory: ${{ env.KSRC }}
+      - name: Build etc.jffs2
         run: |
-          # CROSS_COMPILE must be explicit: the port defconfig carries a stale
-          # 'xtensa_esp32s3-' prefix that does not match our toolchain.
-          export ARCH=xtensa
-          export CROSS_COMPILE=xtensa-esp32s3-linux-muslfdpic-
-          make olddefconfig
-          make -j"$(nproc)" KCFLAGS="-Oz -fmerge-all-constants" xipImage
-          ls -lh arch/xtensa/boot/xipImage
+          cd mculinux
+          ./scripts/build-etc-jffs2.sh
 
       - name: Assemble + test all devices
         run: |
           cd mculinux
-          KV="$(echo '${{ steps.kver.outputs.version }}' | cut -d. -f1,2)"
-          cp "$KSRC/arch/xtensa/boot/xipImage" "tools/prebuilt/binaries/xipImage-$KV"
           for device in r8n8 r8n16 r16n16; do
-            ./scripts/build-image.sh "$device" --kernel "$KV"
+            ./scripts/build-image.sh "$device"
             ./scripts/test-qemu.sh "$device" 90
           done
 
-      - name: Upload kernel + flashes
+      - name: Upload kernel + rootfs + flashes
         uses: actions/upload-artifact@v4
         with:
-          name: full-${{ steps.kver.outputs.version }}
+          name: full-${{ steps.vers.outputs.kver }}-bb${{ steps.vers.outputs.bver }}
           path: |
             mculinux/tools/prebuilt/binaries/xipImage-*
+            mculinux/tools/prebuilt/binaries/rootfs.erofs
+            mculinux/tools/prebuilt/binaries/etc.jffs2
             mculinux/output/*/flash_*.bin
           retention-days: 30
+
+      - name: Commit fresh binaries back to main
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          git config user.name "mculinux-ci"
+          git config user.email "mculinux-ci@users.noreply.github.com"
+          git add mculinux/tools/prebuilt/binaries/xipImage-* \
+                  mculinux/tools/prebuilt/binaries/rootfs.erofs \
+                  mculinux/tools/prebuilt/binaries/etc.jffs2
+          git diff --cached --quiet && echo "Nothing changed, skipping commit" && exit 0
+          git commit -m "full: kernel ${{ steps.vers.outputs.kver }} + busybox ${{ steps.vers.outputs.bver }} (automated)"
+          git push origin HEAD:main
