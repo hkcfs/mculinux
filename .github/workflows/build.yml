@@ -121,6 +121,7 @@ jobs:
 
       - name: Check ESP32-S3 patches exist for branch
         id: patchcheck
+        shell: bash
         run: |
           shopt -s nullglob
           DIRS=("$GITHUB_WORKSPACE"/mculinux/patches/linux-${{ matrix.branch }}*/)
