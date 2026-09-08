@@ -73,6 +73,11 @@ run: ## Boot flash image in QEMU (interactive, retry loop)
 compress: ## Compare filesystem compression variants
 	$(SCRIPTS)/compress-test.sh
 
+latest: ## Print latest stable kernel (overall + per branch)
+	@echo -n "stable: "; $(SCRIPTS)/latest-stable.sh
+	@echo -n "7.1:    "; $(SCRIPTS)/latest-stable.sh 7.1
+	@echo -n "7.2:    "; $(SCRIPTS)/latest-stable.sh 7.2
+
 clean: ## Clean output
 	rm -rf output/
 	@echo "Cleaned output"

@@ -57,6 +57,8 @@ ENV PATH="${TOOLCHAIN_DIR}/bin:${PATH}"
 # Retries + edge mirror: CI runners occasionally drop long downloads.
 RUN mkdir -p /opt/src && \
     latest() { \
+      LATEST_STABLE=$(curl -s --max-time 30 https://kernel.org | grep -A 1 'stable:' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1); \
+      case "$LATEST_STABLE" in "$1".*) echo "$LATEST_STABLE"; return 0;; esac; \
       curl -sL --max-time 30 https://www.kernel.org/releases.json | \
         grep -o "\"version\": \"$1\.[0-9]*\"" | grep -oE '[0-9.]+' | \
         sort -V | tail -1; \

@@ -102,10 +102,17 @@ jobs:
       - name: Resolve latest stable patch for branch
         id: kver
         run: |
+          # Primary: kernel.org homepage (global latest stable); backports fall
+          # back to releases.json. Same logic as scripts/latest-stable.sh.
           BRANCH='${{ matrix.branch }}'
-          KVER="$(curl -sL --max-time 30 https://www.kernel.org/releases.json \
-            | grep -o "\"version\": \"$BRANCH\.[0-9]*\"" | grep -oE '[0-9.]+' \
-            | sort -V | tail -1)"
+          LATEST_STABLE="$(curl -s --max-time 30 https://kernel.org \
+            | grep -A 1 'stable:' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
+          case "$LATEST_STABLE" in
+            "$BRANCH".*) KVER="$LATEST_STABLE" ;;
+            *) KVER="$(curl -sL --max-time 30 https://www.kernel.org/releases.json \
+              | grep -o "\"version\": \"$BRANCH\.[0-9]*\"" | grep -oE '[0-9.]+' \
+              | sort -V | tail -1)" ;;
+          esac
           if [ -z "$KVER" ]; then echo "FAIL: could not resolve latest $BRANCH from kernel.org"; exit 1; fi
           echo "Latest $BRANCH stable: $KVER"
           echo "version=$KVER" >> $GITHUB_OUTPUT
