@@ -74,7 +74,10 @@ for attempt in 1 2 3; do
         for i in 1 2 3 4 5 6; do
             sleep 12
             echo "root"
-            echo "free; cat /proc/meminfo | head -16; df -h; echo ---MEASURED---"
+            echo "---FREE---"; echo "free"
+            echo "---MEMINFO---"; echo "cat /proc/meminfo"
+            echo "---DF---"; echo "df -h; df -i"
+            echo "---MEASURED---"
         done
         sleep 300
     } | timeout "$TIMEOUT" "$QEMU" \
@@ -108,6 +111,12 @@ done
 # Cleanup temp file
 [ -n "${PADDED:-}" ] && rm -f "$PADDED"
 
+# Full serial log for inspection (output/ is gitignored, never committed)
+LOG_FILE="$MCULINUX_DIR/output/${DEVICE}/serial_${DEVICE}.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+echo "$OUTPUT" > "$LOG_FILE"
+echo "Full serial log: $LOG_FILE"
+
 # Analyze boot
 HAS_KERNEL=false
 HAS_TTY=false
@@ -127,12 +136,17 @@ if echo "$OUTPUT" | grep -q -- "---MEASURED---"; then
     HAS_MEASURE=true
 fi
 
-# Guest memory/storage report (from the in-guest free/meminfo/df capture)
+# Guest memory/storage report: full outputs of the last captured block.
+# Note on "free disk": / (erofs) is read-only by design and always shows
+# 100% — it is not writable free space. Writable space = tmpfs lines
+# (and /etc jffs2 if CONFIG_JFFS2_FS is ever enabled; currently off).
 report_measure() {
-    echo "--- Guest memory/storage ---"
-    echo "$OUTPUT" | grep -E "^(MemTotal|MemFree|MemAvailable|Buffers|Cached|Slab|SReclaimable|SUnreclaim|SwapTotal|SwapFree):" | sort -u
-    echo "$OUTPUT" | grep -E "Mem:" | tail -1
-    echo "$OUTPUT" | grep -E "mtdblock5|/dev/root" | tail -2
+    echo "--- Guest: free (full) ---"
+    echo "$OUTPUT" | sed -n '/---FREE---/,/---MEMINFO---/p' | tail -8
+    echo "--- Guest: meminfo (full) ---"
+    echo "$OUTPUT" | sed -n '/---MEMINFO---/,/---DF---/p' | tail -55
+    echo "--- Guest: df -h + df -i (full) ---"
+    echo "$OUTPUT" | sed -n '/---DF---/,/---MEASURED---/p' | tail -16
 }
 
 # Results

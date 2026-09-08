@@ -82,9 +82,9 @@
 
             <div class="step">
                 <span class="step-num">2</span><h3>Load Firmware</h3>
-                <p>Download the latest release, then select the .bin file below</p>
+                <p>Firmware images are built fresh by CI from the latest stable kernel. Grab one from the latest green <strong>Build &amp; Test</strong> run (Actions artifacts), then select the .bin below. First tagged release still pending.</p>
                 <div class="btn-row">
-                    <a href="#" id="download-latest" class="btn btn-primary">Download .zip</a>
+                    <a href="https://github.com/hkcfs/mculinux/actions/workflows/build.yml" target="_blank" id="download-latest" class="btn btn-primary">Open CI Builds</a>
                 </div>
                 <input type="file" id="firmware-file" accept=".bin" style="margin-top:12px;">
                 <div id="file-info" class="status info" style="display:none;"></div>
@@ -114,9 +114,9 @@
                 <p style="color:#888;font-size:0.9rem;">Or use the command line:</p>
                 <pre><code>pip install esptool
 
-# Download firmware from releases, then:
+# Firmware from CI artifacts (or: make image DEVICE=r8n16), then:
 esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 460800 \
-    write_flash 0x0 flash_r8n8.bin</code></pre>
+    write_flash 0x0 flash_r8n16.bin   # 8MB: flash_r8n8.bin</code></pre>
             </div>
 
             <div class="warning-box">
@@ -133,7 +133,6 @@ esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 460800 \
 
     <script type="module">
         const deviceSelect = document.getElementById('device');
-        const downloadLatest = document.getElementById('download-latest');
         const firmwareFile = document.getElementById('firmware-file');
         const fileInfo = document.getElementById('file-info');
         const btnFlash = document.getElementById('btn-flash');
@@ -154,18 +153,19 @@ esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 460800 \
             progressFill.style.width = pct + '%';
         }
 
-        downloadLatest.addEventListener('click', (e) => {
-            e.preventDefault();
-            const device = deviceSelect.value;
-            window.open(`https://github.com/hkcfs/mculinux/releases/latest/download/${device}.zip`, '_blank');
-        });
+        const EXPECTED_MB = { r8n8: 8, r8n16: 16, r16n16: 16 };
 
         firmwareFile.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
             firmwareData = await file.arrayBuffer();
             const sizeMB = (firmwareData.byteLength / 1024 / 1024).toFixed(2);
-            fileInfo.textContent = `Loaded: ${file.name} (${sizeMB} MB)`;
+            const expected = EXPECTED_MB[deviceSelect.value];
+            let msg = `Loaded: ${file.name} (${sizeMB} MB)`;
+            if (Math.abs(firmwareData.byteLength / 1024 / 1024 - expected) > 0.5) {
+                msg += ` — WARNING: ${deviceSelect.value} expects ~${expected} MB. Wrong image?`;
+            }
+            fileInfo.textContent = msg;
             fileInfo.style.display = 'block';
             btnFlash.disabled = false;
             btnErase.disabled = false;
