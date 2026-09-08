@@ -13,9 +13,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 ARG QEMU_TARBALL_URL=https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20250228/qemu-xtensa-softmmu-esp_develop_9.2.2_20250228-x86_64-linux-gnu.tar.xz
 
-# QEMU runtime libs + basic tools for assemble/test scripts.
+# QEMU runtime libs + basic tools for assemble/test scripts
+# (python3: bootloader flash-size patching for 16MB+ images).
 RUN apt-get update && apt-get -y install --no-install-recommends \
-    bash coreutils file git ca-certificates wget xz-utils \
+    bash coreutils file git ca-certificates wget xz-utils python3 \
     libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 \
     && rm -rf /var/lib/apt/lists/*
 
