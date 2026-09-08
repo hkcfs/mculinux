@@ -72,9 +72,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Kernel branches; latest patch per branch auto-resolved below.
-        # '7.2' activates itself once patches/linux-7.2/ is captured
+        # Kernel branches; latest patch per branch auto-resolved above.
+        # '7.2' activates itself once patches/linux-7.2*/ is captured
         # (see BRINGUP-7.2.3.md §6) — until then the job skips loudly.
+        # Patch dirs are globbed (linux-7.1*/ matches linux-7.1.3/).
         branch: ['7.1', '7.2']
     container:
       image: ghcr.io/${{ github.repository }}/builder:latest
@@ -121,10 +122,14 @@ jobs:
       - name: Check ESP32-S3 patches exist for branch
         id: patchcheck
         run: |
-          if [ -d "$GITHUB_WORKSPACE/mculinux/patches/linux-${{ matrix.branch }}" ]; then
+          shopt -s nullglob
+          DIRS=("$GITHUB_WORKSPACE"/mculinux/patches/linux-${{ matrix.branch }}*/)
+          if [ "${#DIRS[@]}" -gt 0 ]; then
+            echo "Using patches: ${DIRS[0]}"
             echo "present=true" >> $GITHUB_OUTPUT
+            echo "patchdir=${DIRS[0]}" >> $GITHUB_OUTPUT
           else
-            echo "SKIP: no patches/linux-${{ matrix.branch }}/ yet — branch activates on capture"
+            echo "SKIP: no patches/linux-${{ matrix.branch }}*/ yet — branch activates on capture"
             echo "present=false" >> $GITHUB_OUTPUT
           fi
 
@@ -132,7 +137,7 @@ jobs:
         if: steps.patchcheck.outputs.present == 'true'
         working-directory: ${{ env.KSRC }}
         run: |
-          KPATCH="$GITHUB_WORKSPACE/mculinux/patches/linux-${{ matrix.branch }}"
+          KPATCH='${{ steps.patchcheck.outputs.patchdir }}'
           for patch in "$KPATCH"/0*.patch; do
             echo "Applying $(basename "$patch")..."
             git apply --check "$patch" 2>/dev/null && git apply "$patch" || \
