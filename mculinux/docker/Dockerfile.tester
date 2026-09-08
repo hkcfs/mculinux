@@ -6,7 +6,7 @@
 #   docker build -f mculinux/docker/Dockerfile.tester -t mculinux-tester .
 # Normally built by .github/workflows/docker.yml.
 
-ARG UBUNTU_TAG=24.04
+ARG UBUNTU_TAG=latest
 FROM ubuntu:${UBUNTU_TAG}
 
 ENV DEBIAN_FRONTEND=noninteractive
