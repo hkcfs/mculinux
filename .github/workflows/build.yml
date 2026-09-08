@@ -142,7 +142,7 @@ jobs:
           for patch in "$KPATCH"/0*.patch; do
             echo "Applying $(basename "$patch")..."
             git apply --check "$patch" 2>/dev/null && git apply "$patch" || \
-              patch -p1 < "$patch" || echo "WARN: patch may already be applied"
+              patch -p1 --batch --forward < "$patch" || echo "WARN: patch may already be applied"
           done
           [ -x "$KPATCH/apply.sh" ] && bash "$KPATCH/apply.sh" || true
           cp "$KPATCH/defconfig" .config
@@ -151,7 +151,10 @@ jobs:
         if: steps.patchcheck.outputs.present == 'true'
         working-directory: ${{ env.KSRC }}
         run: |
+          # CROSS_COMPILE must be explicit: the port defconfig carries a stale
+          # 'xtensa_esp32s3-' prefix that does not match our toolchain.
           export ARCH=xtensa
+          export CROSS_COMPILE=xtensa-esp32s3-linux-muslfdpic-
           make olddefconfig
           make -j"$(nproc)" KCFLAGS="-Oz -fmerge-all-constants" xipImage
           ls -lh arch/xtensa/boot/xipImage
