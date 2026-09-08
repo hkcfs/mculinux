@@ -73,10 +73,14 @@ jobs:
       fail-fast: false
       matrix:
         # Kernel branches; latest patch per branch auto-resolved above.
-        # '7.2' activates itself once patches/linux-7.2*/ is captured
+        # NOTE 2026-09-08: '7.1' is parked — patches/linux-7.1.3/*.patch are
+        # absolute-path inter-tree diffs (/tmp/...) that cannot apply with -p1
+        # in a clean tree (pre-existing breakage, not CI's fault). They need
+        # regeneration as proper relative-path patches first.
+        # '7.2' self-activates once patches/linux-7.2*/ is captured
         # (see BRINGUP-7.2.3.md §6) — until then the job skips loudly.
         # Patch dirs are globbed (linux-7.1*/ matches linux-7.1.3/).
-        branch: ['7.1', '7.2']
+        branch: ['7.2']
     container:
       image: ghcr.io/${{ github.repository }}/builder:latest
       credentials:
