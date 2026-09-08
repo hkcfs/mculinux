@@ -1,0 +1,13 @@
+From: MCUlinux ESP32-S3 port <hkcfs@example.com>
+Subject: [PATCH] gpio: mmio: add esp,esp32-clk-gpio compatible (UART clock gate)
+
+--- a/drivers/gpio/gpio-mmio.c
++++ b/drivers/gpio/gpio-mmio.c
+@@ -722,6 +722,7 @@
+ 	{ .compatible = "ni,169445-nand-gpio" },
+ 	{ .compatible = "intel,ixp4xx-expansion-bus-mmio-gpio" },
+ 	{ .compatible = "opencores,gpio" },
++	{ .compatible = "esp,esp32-clk-gpio" },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(of, gpio_mmio_of_match);

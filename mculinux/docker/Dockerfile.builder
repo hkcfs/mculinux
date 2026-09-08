@@ -17,8 +17,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Bumpable source versions (keep in sync with Makefile KERNEL_VERSION).
 ARG TOOLCHAIN_URL=https://github.com/hkcfs/mculinux/releases/download/toolchain/xtensa-esp32s3-linux-muslfdpic.tar.xz
 ARG TOOLCHAIN_DIR=/opt/crosstool-ng/xtensa-esp32s3-linux-muslfdpic
-# Source branches to prefetch (latest patch per branch resolved at build time).
-ARG KERNEL_BRANCHES="7.1 7.2"
+# Busybox version to prefetch (kernel is always latest-stable, resolved above).
 ARG BUSYBOX_VERSION=1.38.0
 ARG QEMU_TARBALL_URL=https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20250228/qemu-xtensa-softmmu-esp_develop_9.2.2_20250228-x86_64-linux-gnu.tar.xz
 
@@ -53,28 +52,20 @@ RUN mkdir -p /opt && \
 ENV PATH="${TOOLCHAIN_DIR}/bin:${PATH}"
 
 # Kernel + busybox sources, compressed (jobs extract what they need).
-# Always the latest patch per branch (7.2.3 -> 7.2.4 automatically).
+# Always the latest stable kernel — automation policy: build newest, fail
+# loudly if our patches stop applying, never pin a "known good" version.
 # Retries + edge mirror: CI runners occasionally drop long downloads.
 RUN mkdir -p /opt/src && \
-    latest() { \
-      LATEST_STABLE=$(curl -s --max-time 30 https://kernel.org | grep -A 1 'stable:' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1); \
-      case "$LATEST_STABLE" in "$1".*) echo "$LATEST_STABLE"; return 0;; esac; \
-      curl -sL --max-time 30 https://www.kernel.org/releases.json | \
-        grep -o "\"version\": \"$1\.[0-9]*\"" | grep -oE '[0-9.]+' | \
-        sort -V | tail -1; \
-    } && \
+    LATEST_STABLE=$(curl -s --max-time 30 https://kernel.org | grep -A 1 'stable:' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1) && \
+    test -n "$LATEST_STABLE" && \
+    echo "Prefetching linux-$LATEST_STABLE..." && \
     fetch() { \
       url="$1"; out="$2"; \
       wget -q --tries=3 --timeout=120 "$url" -O "$out" || \
       wget -q --tries=5 --timeout=120 "${url/cdn.kernel.org/mirrors.edge.kernel.org}" -O "$out"; \
     } && \
-    for b in $KERNEL_BRANCHES; do \
-      v="$(latest "$b")"; \
-      if [ -z "$v" ]; then echo "WARN: could not resolve latest $b, skipping"; continue; fi; \
-      echo "Fetching linux-$v..."; \
-      fetch "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${v}.tar.xz" \
-        "/opt/src/linux-${v}.tar.xz"; \
-    done && \
+    fetch "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${LATEST_STABLE}.tar.xz" \
+      "/opt/src/linux-${LATEST_STABLE}.tar.xz" && \
     fetch "https://busybox.net/downloads/busybox-${BUSYBOX_VERSION}.tar.bz2" \
       "/opt/src/busybox-${BUSYBOX_VERSION}.tar.bz2" && \
     ls -lh /opt/src/ && \

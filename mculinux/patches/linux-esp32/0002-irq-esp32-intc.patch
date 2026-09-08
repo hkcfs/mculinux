@@ -1,0 +1,296 @@
+From: MCUlinux ESP32-S3 port <hkcfs@example.com>
+Subject: [PATCH] irqchip: add ESP32 interrupt controller + parent hierarchy alloc/free
+
+--- a/drivers/irqchip/Makefile
++++ b/drivers/irqchip/Makefile
+@@ -136,3 +136,4 @@
+ obj-$(CONFIG_MCHP_EIC)			+= irq-mchp-eic.o
+ obj-$(CONFIG_SOPHGO_SG2042_MSI)		+= irq-sg2042-msi.o
+ obj-$(CONFIG_SUNPLUS_SP7021_INTC)	+= irq-sp7021-intc.o
++obj-$(CONFIG_ESP32_INTC)		+= irq-esp32-intc.o
+--- a/drivers/irqchip/irq-xtensa-pic.c
++++ b/drivers/irqchip/irq-xtensa-pic.c
+@@ -36,9 +36,64 @@
+ 			out_hwirq, out_type);
+ }
+ 
++#ifdef CONFIG_IRQ_DOMAIN_HIERARCHY
++static struct irq_chip xtensa_irq_chip;
++
++static int xtensa_pic_irq_domain_alloc(struct irq_domain *domain,
++				       unsigned int virq,
++				       unsigned int nr_irqs, void *args)
++{
++	struct irq_fwspec *fwspec = args;
++	irq_hw_number_t hwirq;
++	int rc;
++
++	if (WARN_ON(nr_irqs != 1))
++		return -EINVAL;
++
++	switch (fwspec->param_count) {
++	case 1:
++		hwirq = fwspec->param[0];
++		break;
++	case 2:
++		if (fwspec->param[1] == 0)
++			hwirq = fwspec->param[0];
++		else if (fwspec->param[1] == 1)
++			hwirq = xtensa_map_ext_irq(fwspec->param[0]);
++		else
++			return -EINVAL;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	pr_debug("%s: virq = %d, hwirq = %ld\n", __func__, virq, hwirq);
++	rc = irq_domain_set_hwirq_and_chip(domain, virq, hwirq,
++					   &xtensa_irq_chip, NULL);
++	if (rc)
++		return rc;
++
++	return xtensa_irq_map(domain, virq, hwirq);
++}
++
++static void xtensa_pic_irq_domain_free(struct irq_domain *domain, unsigned int virq,
++				       unsigned int nr_irqs)
++{
++	unsigned int i;
++
++	for (i = 0; i < nr_irqs; i++) {
++		struct irq_data *d = irq_domain_get_irq_data(domain, virq + i);
++		irq_domain_reset_irq_data(d);
++	}
++}
++#endif
++
+ static const struct irq_domain_ops xtensa_irq_domain_ops = {
+ 	.xlate = xtensa_pic_irq_domain_xlate,
+ 	.map = xtensa_irq_map,
++#ifdef CONFIG_IRQ_DOMAIN_HIERARCHY
++	.alloc = xtensa_pic_irq_domain_alloc,
++	.free = xtensa_pic_irq_domain_free,
++#endif
+ };
+ 
+ static void xtensa_irq_mask(struct irq_data *d)
+@@ -64,6 +119,10 @@
+ 	xtensa_set_sr(BIT(d->hwirq), intclear);
+ }
+ 
++static void xtensa_irq_eoi(struct irq_data *d)
++{
++}
++
+ static int xtensa_irq_retrigger(struct irq_data *d)
+ {
+ 	unsigned int mask = BIT(d->hwirq);
+@@ -79,6 +138,7 @@
+ 	.irq_mask	= xtensa_irq_mask,
+ 	.irq_unmask	= xtensa_irq_unmask,
+ 	.irq_ack	= xtensa_irq_ack,
++	.irq_eoi	= xtensa_irq_eoi,
+ 	.irq_retrigger	= xtensa_irq_retrigger,
+ };
+ 
+--- /dev/null
++++ b/drivers/irqchip/irq-esp32-intc.c
+@@ -0,0 +1,197 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include <linux/interrupt.h>
++#include <linux/irqdomain.h>
++#include <linux/irq.h>
++#include <linux/irqchip.h>
++#include <linux/of.h>
++#include <linux/of_platform.h>
++
++#define ESP32_INTC_DISCONNECTED 6
++#ifdef CONFIG_SMP
++#define MAX_CPU_COUNT 2
++#else
++#define MAX_CPU_COUNT 1
++#endif
++
++struct esp32_intc {
++	void __iomem *base[MAX_CPU_COUNT];
++	int n_irq;
++	int n_cpus;
++};
++
++static void esp32_intc_write(struct esp32_intc *priv, int cpu, int irq, int p)
++{
++	pr_debug("%s: 0x%08x -> 0x%08lx\n",
++		 __func__, p, (unsigned long)(priv->base[cpu] + irq * 4));
++	writel(p, priv->base[cpu] + irq * 4);
++}
++
++static void esp32_intc_disconnect_all(struct esp32_intc *priv)
++{
++	int cpu, irq;
++
++	for (cpu = 0; cpu < priv->n_cpus; ++cpu)
++		for (irq = 0; irq < priv->n_irq; ++irq)
++			esp32_intc_write(priv, cpu, irq, ESP32_INTC_DISCONNECTED);
++}
++
++static struct irq_chip esp32_intc_chip = {
++	.name			= "esp32-intc",
++	.irq_eoi		= irq_chip_eoi_parent,
++	.irq_mask		= irq_chip_mask_parent,
++	.irq_unmask		= irq_chip_unmask_parent,
++	.irq_retrigger		= irq_chip_retrigger_hierarchy,
++	.irq_set_type		= irq_chip_set_type_parent,
++	.flags			= IRQCHIP_MASK_ON_SUSPEND |
++				  IRQCHIP_SKIP_SET_WAKE,
++#ifdef CONFIG_SMP
++	.irq_set_affinity	= irq_chip_set_affinity_parent,
++#endif
++};
++
++static int esp32_intc_domain_alloc(struct irq_domain *domain, unsigned int virq,
++				   unsigned int nr_irqs, void *data)
++{
++	struct irq_fwspec *fwspec = data;
++	struct esp32_intc *priv = domain->host_data;
++	unsigned int i;
++
++	pr_debug("%s virq = %d, nr = %d\n", __func__, virq, nr_irqs);
++	for (i = 0; i < nr_irqs; ++i) {
++		struct irq_fwspec pfwspec;
++		irq_hw_number_t hwirq;
++		int cpu;
++		int rc;
++
++		pr_debug("  %d: param_count = %d, param[0] = %d, param[1] = %d\n",
++			 i, fwspec[i].param_count,
++			 fwspec[i].param[0], fwspec[i].param[1]);
++
++		if (fwspec[i].param_count < 2 || fwspec[i].param_count > 3)
++			return -EINVAL;
++
++		if (fwspec[i].param_count == 2)
++			cpu = 0;
++		else
++			cpu = fwspec[i].param[2];
++
++		if (cpu >= priv->n_cpus)
++			return -EINVAL;
++
++		if (fwspec[i].param[0] >= priv->n_irq)
++			return -EINVAL;
++
++		hwirq = fwspec[i].param[1];
++
++		pfwspec.fwnode = domain->parent->fwnode;
++		pfwspec.param_count = 2;
++		pfwspec.param[0] = hwirq;
++		pfwspec.param[1] = 0;
++
++		rc = irq_domain_alloc_irqs_parent(domain, virq + i, 1,
++						  &pfwspec);
++		if (rc) {
++			pr_err("%s: irq_domain_alloc_irqs_parent returned %d\n",
++			       __func__, rc);
++			return rc;
++		}
++
++		esp32_intc_write(priv, cpu, fwspec[i].param[0], hwirq);
++		rc = irq_domain_set_hwirq_and_chip(domain, virq + i, hwirq,
++						   &esp32_intc_chip, NULL);
++		if (rc) {
++			pr_err("%s: irq_domain_set_hwirq_and_chip returned %d\n",
++			       __func__, rc);
++			return rc;
++		}
++	}
++	return 0;
++}
++
++static void esp32_intc_domain_free(struct irq_domain *domain, unsigned int virq,
++				   unsigned int nr_irqs)
++{
++	pr_debug("%s\n", __func__);
++}
++
++static const struct irq_domain_ops esp32_domain_ops = {
++	.alloc = esp32_intc_domain_alloc,
++	.free = esp32_intc_domain_free,
++};
++
++static int __init esp32_intc_hw_init(struct device_node *node,
++				     struct esp32_intc **hw)
++{
++	struct platform_device *pdev;
++	struct esp32_intc *priv;
++	resource_size_t size;
++	int cpu;
++
++	pdev = of_find_device_by_node(node);
++	if (!pdev)
++		return -ENODEV;
++
++	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
++	if (!priv)
++		return -ENOMEM;
++
++	for (cpu = 0; cpu < MAX_CPU_COUNT; ++cpu) {
++		priv->base[cpu] = devm_of_iomap(&pdev->dev, node, cpu, &size);
++		if (IS_ERR(priv->base[cpu])) {
++			if (cpu == 0)
++				return PTR_ERR(priv->base[cpu]);
++			break;
++		}
++		if (cpu == 0)
++			priv->n_irq = size / 4;
++		else if (priv->n_irq != size / 4)
++			return -EINVAL;
++	}
++	priv->n_cpus = cpu;
++
++	*hw = priv;
++
++	esp32_intc_disconnect_all(priv);
++
++	return 0;
++}
++
++static int __init esp32_intc_init(struct platform_device *pdev,
++				  struct device_node *parent)
++{
++	struct device_node *node = pdev->dev.of_node;
++	struct irq_domain *parent_domain, *domain;
++	struct esp32_intc *priv;
++	int rc;
++
++	if (!parent) {
++		pr_err("%pOF: no parent, giving up\n", node);
++		return -ENODEV;
++	}
++
++	parent_domain = irq_find_host(parent);
++	if (!parent_domain) {
++		pr_err("%pOF: unable to obtain parent domain\n", node);
++		return -ENXIO;
++	}
++
++	rc = esp32_intc_hw_init(node, &priv);
++	if (rc < 0) {
++		pr_err("%pOF: couldn't init hw\n", node);
++		return rc;
++	}
++
++		domain = irq_domain_create_hierarchy(parent_domain, 0,
++					     priv->n_irq, of_fwnode_handle(node),
++					     &esp32_domain_ops, priv);
++	if (!domain) {
++		pr_err("%pOF: failed to allocated domain\n", node);
++		return -ENOMEM;
++	}
++	return 0;
++}
++
++IRQCHIP_PLATFORM_DRIVER_BEGIN(esp32_intc)
++IRQCHIP_MATCH("esp,esp32-intc", esp32_intc_init)
++IRQCHIP_PLATFORM_DRIVER_END(esp32_intc)

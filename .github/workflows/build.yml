@@ -68,21 +68,12 @@ jobs:
           retention-days: 30
 
   full:
-    name: full (branch ${{ matrix.branch }})
+    # Automation policy: ALWAYS build the latest stable kernel and apply our
+    # patches. Applies cleanly -> green. Fails -> loud red error, we make new
+    # patches. Never pin a "known good" version to avoid testing the new one.
+    name: full (latest stable + ESP32 patches)
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    strategy:
-      fail-fast: false
-      matrix:
-        # Kernel branches; latest patch per branch auto-resolved above.
-        # NOTE 2026-09-08: '7.1' is parked — patches/linux-7.1.3/*.patch are
-        # absolute-path inter-tree diffs (/tmp/...) that cannot apply with -p1
-        # in a clean tree (pre-existing breakage, not CI's fault). They need
-        # regeneration as proper relative-path patches first.
-        # '7.2' self-activates once patches/linux-7.2*/ is captured
-        # (see BRINGUP-7.2.3.md §6) — until then the job skips loudly.
-        # Patch dirs are globbed (linux-7.1*/ matches linux-7.1.3/).
-        branch: ['7.2']
     container:
       image: ghcr.io/${{ github.repository }}/builder:latest
       credentials:
@@ -99,22 +90,14 @@ jobs:
       - name: Mark workspace safe
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Resolve latest stable patch for branch
+      - name: Resolve latest stable kernel
         id: kver
         run: |
-          # Primary: kernel.org homepage (global latest stable); backports fall
-          # back to releases.json. Same logic as scripts/latest-stable.sh.
-          BRANCH='${{ matrix.branch }}'
-          LATEST_STABLE="$(curl -s --max-time 30 https://kernel.org \
+          # Owner's snippet, verbatim. Same logic as scripts/latest-stable.sh.
+          KVER="$(curl -s --max-time 30 https://kernel.org \
             | grep -A 1 'stable:' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
-          case "$LATEST_STABLE" in
-            "$BRANCH".*) KVER="$LATEST_STABLE" ;;
-            *) KVER="$(curl -sL --max-time 30 https://www.kernel.org/releases.json \
-              | grep -o "\"version\": \"$BRANCH\.[0-9]*\"" | grep -oE '[0-9.]+' \
-              | sort -V | tail -1)" ;;
-          esac
-          if [ -z "$KVER" ]; then echo "FAIL: could not resolve latest $BRANCH from kernel.org"; exit 1; fi
-          echo "Latest $BRANCH stable: $KVER"
+          if [ -z "$KVER" ]; then echo "FAIL: could not resolve latest stable from kernel.org"; exit 1; fi
+          echo "Latest stable: $KVER"
           echo "version=$KVER" >> $GITHUB_OUTPUT
 
       - name: Extract kernel source (pre-fetched in image, else download)
@@ -132,36 +115,19 @@ jobs:
           fi
           echo "KSRC=/tmp/linux-$KVER" >> $GITHUB_ENV
 
-      - name: Check ESP32-S3 patches exist for branch
-        id: patchcheck
-        shell: bash
-        run: |
-          shopt -s nullglob
-          DIRS=("$GITHUB_WORKSPACE"/mculinux/patches/linux-${{ matrix.branch }}*/)
-          if [ "${#DIRS[@]}" -gt 0 ]; then
-            echo "Using patches: ${DIRS[0]}"
-            echo "present=true" >> $GITHUB_OUTPUT
-            echo "patchdir=${DIRS[0]}" >> $GITHUB_OUTPUT
-          else
-            echo "SKIP: no patches/linux-${{ matrix.branch }}*/ yet — branch activates on capture"
-            echo "present=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Apply ESP32-S3 patches
-        if: steps.patchcheck.outputs.present == 'true'
+      - name: Apply ESP32 patches (STRICT — any failure is a red build)
         working-directory: ${{ env.KSRC }}
         run: |
-          KPATCH='${{ steps.patchcheck.outputs.patchdir }}'
+          KPATCH="$GITHUB_WORKSPACE/mculinux/patches/linux-esp32"
+          test -d "$KPATCH" || { echo "FAIL: $KPATCH missing"; exit 1; }
           for patch in "$KPATCH"/0*.patch; do
             echo "Applying $(basename "$patch")..."
-            git apply --check "$patch" 2>/dev/null && git apply "$patch" || \
-              patch -p1 --batch --forward < "$patch" || echo "WARN: patch may already be applied"
+            patch -p1 --batch --forward < "$patch" || exit 1
           done
-          [ -x "$KPATCH/apply.sh" ] && bash "$KPATCH/apply.sh" || true
           cp "$KPATCH/defconfig" .config
+          echo "All ESP32 patches applied cleanly"
 
       - name: Build xipImage
-        if: steps.patchcheck.outputs.present == 'true'
         working-directory: ${{ env.KSRC }}
         run: |
           # CROSS_COMPILE must be explicit: the port defconfig carries a stale
@@ -173,10 +139,9 @@ jobs:
           ls -lh arch/xtensa/boot/xipImage
 
       - name: Assemble + test all devices
-        if: steps.patchcheck.outputs.present == 'true'
         run: |
           cd mculinux
-          KV='${{ matrix.branch }}'
+          KV="$(echo '${{ steps.kver.outputs.version }}' | cut -d. -f1,2)"
           cp "$KSRC/arch/xtensa/boot/xipImage" "tools/prebuilt/binaries/xipImage-$KV"
           for device in r8n8 r8n16 r16n16; do
             ./scripts/build-image.sh "$device" --kernel "$KV"
@@ -184,10 +149,9 @@ jobs:
           done
 
       - name: Upload kernel + flashes
-        if: steps.patchcheck.outputs.present == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: full-${{ matrix.branch }}-${{ steps.kver.outputs.version }}
+          name: full-${{ steps.kver.outputs.version }}
           path: |
             mculinux/tools/prebuilt/binaries/xipImage-*
             mculinux/output/*/flash_*.bin
