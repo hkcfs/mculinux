@@ -8,6 +8,7 @@ set -e
 MCULINUX_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$MCULINUX_DIR/build"
 OUTPUT_DIR="$MCULINUX_DIR/output"
+PREBUILT_BINARIES="$MCULINUX_DIR/tools/prebuilt/binaries"
 DEVICE="${1:-r8n8}"
 ROOTFS_OVERRIDE=""
 KERNEL_VERSION="${KERNEL_VERSION:-latest}"
@@ -22,13 +23,18 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Resolve kernel version: explicit --kernel, KERNEL_VERSION env, or the
-# version stamp left by build-kernel.sh. Never guess silently.
+# Resolve kernel version: explicit --kernel, KERNEL_VERSION env, the version
+# stamp left by build-kernel.sh, or the newest xipImage-* prebuilt (the stamp
+# is gitignored, so CI checkouts without a local kernel build use this).
 if [ "$KERNEL_VERSION" = "latest" ]; then
     if [ -f "$BUILD_DIR/.kernel-version" ]; then
         KERNEL_VERSION="$(cat "$BUILD_DIR/.kernel-version")"
+    elif ls "$PREBUILT_BINARIES"/xipImage-* >/dev/null 2>&1; then
+        KERNEL_VERSION="$(ls "$PREBUILT_BINARIES"/xipImage-* | sed 's/.*xipImage-//' | sort -V | tail -1)"
+        KERNEL_VERSION="$KERNEL_VERSION.0"
+        echo "No version stamp; using newest prebuilt: $KERNEL_VERSION"
     else
-        echo "ERROR: KERNEL_VERSION=latest but no build/build/.kernel-version stamp."
+        echo "ERROR: no kernel version resolvable (no stamp, no prebuilt)."
         echo "  Run: make kernel  (or pass --kernel 7.2)"
         exit 1
     fi
@@ -50,7 +56,6 @@ FLASH_SIZE_BYTES=$((FLASH_SIZE_MB * 1024 * 1024))
 FLASH_IMAGE="$OUTPUT_DIR/${DEVICE}/flash_${DEVICE}.bin"
 
 # Component paths (all committed prebuilts, refreshed by make kernel/busybox/etc or CI)
-PREBUILT_BINARIES="$MCULINUX_DIR/tools/prebuilt/binaries"
 ESP_HOSTED_DIR="$BUILD_DIR/esp-hosted/esp_hosted_ng/esp/esp_driver"
 
 # Find bootloader binaries: prebuilt binaries > esp-hosted build tree
