@@ -66,7 +66,18 @@ fi
 echo "=== QEMU Test: $DEVICE (${TIMEOUT}s timeout, ${QEMU_RAM} RAM) ==="
 for attempt in 1 2 3; do
     EXIT_CODE=0
-    OUTPUT=$(timeout "$TIMEOUT" "$QEMU" \
+    # Drive the serial console while QEMU runs: answer a login prompt if one
+    # appears, then capture free/meminfo/df for the boot report. The guest
+    # usually drops straight to a shell, so stray input is harmless, and the
+    # bundles repeat in case the guest is slow to reach userspace.
+    OUTPUT=$( {
+        for i in 1 2 3 4 5 6; do
+            sleep 12
+            echo "root"
+            echo "free; cat /proc/meminfo | head -16; df -h; echo ---MEASURED---"
+        done
+        sleep 300
+    } | timeout "$TIMEOUT" "$QEMU" \
         -M esp32s3 \
         -nographic \
         -m "$QEMU_RAM" \
@@ -101,6 +112,7 @@ done
 HAS_KERNEL=false
 HAS_TTY=false
 HAS_LOGIN=false
+HAS_MEASURE=false
 
 if echo "$OUTPUT" | grep -q "Linux version"; then
     HAS_KERNEL=true
@@ -111,6 +123,17 @@ fi
 if echo "$OUTPUT" | grep -q "buildroot login:\|/ # \|~ # "; then
     HAS_LOGIN=true
 fi
+if echo "$OUTPUT" | grep -q -- "---MEASURED---"; then
+    HAS_MEASURE=true
+fi
+
+# Guest memory/storage report (from the in-guest free/meminfo/df capture)
+report_measure() {
+    echo "--- Guest memory/storage ---"
+    echo "$OUTPUT" | grep -E "^(MemTotal|MemFree|MemAvailable|Buffers|Cached|Slab|SReclaimable|SUnreclaim|SwapTotal|SwapFree):" | sort -u
+    echo "$OUTPUT" | grep -E "Mem:" | tail -1
+    echo "$OUTPUT" | grep -E "mtdblock5|/dev/root" | tail -2
+}
 
 # Results
 echo ""
@@ -118,15 +141,18 @@ echo "Boot results for $DEVICE:"
 echo "  Kernel: $HAS_KERNEL"
 echo "  TTY:    $HAS_TTY"
 echo "  Login:  $HAS_LOGIN"
+echo "  Measured: $HAS_MEASURE"
 echo ""
 
 if $HAS_LOGIN; then
     echo "PASS: Full boot to login prompt"
     echo "$OUTPUT" | grep -E "(Linux version|ttyS0|Mounted root|Run /sbin/init|login:)" | head -10
+    $HAS_MEASURE && report_measure
     exit 0
 elif $HAS_TTY; then
     echo "PASS: UART registered, kernel booted"
     echo "$OUTPUT" | grep -E "(Linux version|ttyS0|Mounted root|Run /sbin/init)" | head -10
+    $HAS_MEASURE && report_measure
     exit 0
 elif $HAS_KERNEL; then
     echo "WARN: Kernel booted but no UART/login"
