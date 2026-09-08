@@ -66,14 +66,16 @@ jobs:
           retention-days: 30
 
   full:
-    name: full (kernel ${{ matrix.kernel }})
+    name: full (branch ${{ matrix.branch }})
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
-        # Add '7.2.3' once patches/linux-7.2.3/ is captured (see BRINGUP-7.2.3.md §6).
-        kernel: ['7.1.3']
+        # Kernel branches; latest patch per branch auto-resolved below.
+        # '7.2' activates itself once patches/linux-7.2/ is captured
+        # (see BRINGUP-7.2.3.md §6) — until then the job skips loudly.
+        branch: ['7.1', '7.2']
     container:
       image: ghcr.io/${{ github.repository }}/builder:latest
       credentials:
@@ -87,15 +89,47 @@ jobs:
       - name: Mark workspace safe
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Extract kernel source (pre-fetched in image)
+      - name: Resolve latest stable patch for branch
+        id: kver
         run: |
-          tar -xf /opt/src/linux-${{ matrix.kernel }}.tar.xz -C /tmp
-          echo "KSRC=/tmp/linux-${{ matrix.kernel }}" >> $GITHUB_ENV
+          BRANCH='${{ matrix.branch }}'
+          KVER="$(curl -sL --max-time 30 https://www.kernel.org/releases.json \
+            | grep -o "\"version\": \"$BRANCH\.[0-9]*\"" | grep -oE '[0-9.]+' \
+            | sort -V | tail -1)"
+          if [ -z "$KVER" ]; then echo "FAIL: could not resolve latest $BRANCH from kernel.org"; exit 1; fi
+          echo "Latest $BRANCH stable: $KVER"
+          echo "version=$KVER" >> $GITHUB_OUTPUT
+
+      - name: Extract kernel source (pre-fetched in image, else download)
+        run: |
+          KVER='${{ steps.kver.outputs.version }}'
+          if [ -f "/opt/src/linux-$KVER.tar.xz" ]; then
+            tar -xf "/opt/src/linux-$KVER.tar.xz" -C /tmp
+          else
+            echo "Not pre-fetched, downloading linux-$KVER..."
+            curl -sL --retry 3 "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-$KVER.tar.xz" \
+              -o "/tmp/linux-$KVER.tar.xz" || \
+            curl -sL --retry 5 "https://mirrors.edge.kernel.org/pub/linux/kernel/v7.x/linux-$KVER.tar.xz" \
+              -o "/tmp/linux-$KVER.tar.xz"
+            tar -xf "/tmp/linux-$KVER.tar.xz" -C /tmp
+          fi
+          echo "KSRC=/tmp/linux-$KVER" >> $GITHUB_ENV
+
+      - name: Check ESP32-S3 patches exist for branch
+        id: patchcheck
+        run: |
+          if [ -d "$GITHUB_WORKSPACE/mculinux/patches/linux-${{ matrix.branch }}" ]; then
+            echo "present=true" >> $GITHUB_OUTPUT
+          else
+            echo "SKIP: no patches/linux-${{ matrix.branch }}/ yet — branch activates on capture"
+            echo "present=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Apply ESP32-S3 patches
+        if: steps.patchcheck.outputs.present == 'true'
         working-directory: ${{ env.KSRC }}
         run: |
-          KPATCH="$GITHUB_WORKSPACE/mculinux/patches/linux-$(echo '${{ matrix.kernel }}' | cut -d. -f1,2)"
+          KPATCH="$GITHUB_WORKSPACE/mculinux/patches/linux-${{ matrix.branch }}"
           for patch in "$KPATCH"/0*.patch; do
             echo "Applying $(basename "$patch")..."
             git apply --check "$patch" 2>/dev/null && git apply "$patch" || \
@@ -105,6 +139,7 @@ jobs:
           cp "$KPATCH/defconfig" .config
 
       - name: Build xipImage
+        if: steps.patchcheck.outputs.present == 'true'
         working-directory: ${{ env.KSRC }}
         run: |
           export ARCH=xtensa
@@ -113,9 +148,10 @@ jobs:
           ls -lh arch/xtensa/boot/xipImage
 
       - name: Assemble + test all devices
+        if: steps.patchcheck.outputs.present == 'true'
         run: |
           cd mculinux
-          KV="$(echo '${{ matrix.kernel }}' | cut -d. -f1,2)"
+          KV='${{ matrix.branch }}'
           cp "$KSRC/arch/xtensa/boot/xipImage" "tools/prebuilt/binaries/xipImage-$KV"
           for device in r8n8 r8n16 r16n16; do
             ./scripts/build-image.sh "$device" --kernel "$KV"
@@ -123,9 +159,10 @@ jobs:
           done
 
       - name: Upload kernel + flashes
+        if: steps.patchcheck.outputs.present == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: full-${{ matrix.kernel }}
+          name: full-${{ matrix.branch }}-${{ steps.kver.outputs.version }}
           path: |
             mculinux/tools/prebuilt/binaries/xipImage-*
             mculinux/output/*/flash_*.bin

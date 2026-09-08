@@ -17,7 +17,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Bumpable source versions (keep in sync with Makefile KERNEL_VERSION).
 ARG TOOLCHAIN_URL=https://github.com/hkcfs/mculinux/releases/download/toolchain/xtensa-esp32s3-linux-muslfdpic.tar.xz
 ARG TOOLCHAIN_DIR=/opt/crosstool-ng/xtensa-esp32s3-linux-muslfdpic
-ARG KERNEL_VERSIONS="7.1.3 7.2.3"
+# Source branches to prefetch (latest patch per branch resolved at build time).
+ARG KERNEL_BRANCHES="7.1 7.2"
 ARG BUSYBOX_VERSION=1.38.0
 ARG QEMU_TARBALL_URL=https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20250228/qemu-xtensa-softmmu-esp_develop_9.2.2_20250228-x86_64-linux-gnu.tar.xz
 
@@ -52,14 +53,30 @@ RUN mkdir -p /opt && \
 ENV PATH="${TOOLCHAIN_DIR}/bin:${PATH}"
 
 # Kernel + busybox sources, compressed (jobs extract what they need).
+# Always the latest patch per branch (7.2.3 -> 7.2.4 automatically).
+# Retries + edge mirror: CI runners occasionally drop long downloads.
 RUN mkdir -p /opt/src && \
-    for v in $KERNEL_VERSIONS; do \
-      wget -q "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${v}.tar.xz" \
-        -O "/opt/src/linux-${v}.tar.xz"; \
+    latest() { \
+      curl -sL --max-time 30 https://www.kernel.org/releases.json | \
+        grep -o "\"version\": \"$1\.[0-9]*\"" | grep -oE '[0-9.]+' | \
+        sort -V | tail -1; \
+    } && \
+    fetch() { \
+      url="$1"; out="$2"; \
+      wget -q --tries=3 --timeout=120 "$url" -O "$out" || \
+      wget -q --tries=5 --timeout=120 "${url/cdn.kernel.org/mirrors.edge.kernel.org}" -O "$out"; \
+    } && \
+    for b in $KERNEL_BRANCHES; do \
+      v="$(latest "$b")"; \
+      if [ -z "$v" ]; then echo "WARN: could not resolve latest $b, skipping"; continue; fi; \
+      echo "Fetching linux-$v..."; \
+      fetch "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${v}.tar.xz" \
+        "/opt/src/linux-${v}.tar.xz"; \
     done && \
-    wget -q "https://busybox.net/downloads/busybox-${BUSYBOX_VERSION}.tar.bz2" \
-      -O "/opt/src/busybox-${BUSYBOX_VERSION}.tar.bz2" && \
-    ls -lh /opt/src/
+    fetch "https://busybox.net/downloads/busybox-${BUSYBOX_VERSION}.tar.bz2" \
+      "/opt/src/busybox-${BUSYBOX_VERSION}.tar.bz2" && \
+    ls -lh /opt/src/ && \
+    test "$(ls /opt/src/linux-*.tar.xz 2>/dev/null | wc -l)" -ge 1
 
 # Espressif QEMU (esp32s3 machine). test-qemu.sh uses $QEMU first.
 RUN mkdir -p /tmp/qextract /opt/qemu && \
