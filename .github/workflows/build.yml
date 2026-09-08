@@ -81,6 +81,9 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+      # Builder image defaults to non-root; CI needs root to write
+      # GITHUB_OUTPUT/GITHUB_ENV via the runner's mounted _temp dir.
+      options: --user root
 
     steps:
       - name: Checkout code
