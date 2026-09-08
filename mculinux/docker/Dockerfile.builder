@@ -12,6 +12,9 @@
 ARG UBUNTU_TAG=24.04
 FROM ubuntu:${UBUNTU_TAG}
 
+# /bin/sh is dash here; the fetch() fallback below needs bash substitution.
+SHELL ["/bin/bash", "-c"]
+
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Bumpable source versions (keep in sync with Makefile KERNEL_VERSION).
