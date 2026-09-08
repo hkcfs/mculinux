@@ -16,7 +16,9 @@ on:
     - cron: '0 2 * * *'  # Nightly full build, 02:00 UTC
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Per-event groups: a manual/nightly full run must not cancel an in-flight
+  # push run (or vice versa); same-event reruns still cancel each other.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
