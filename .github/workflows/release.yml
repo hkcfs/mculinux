@@ -88,7 +88,7 @@ jobs:
           cd mculinux
           mkdir -p release-staging
           for device in r8n8 r8n16 r16n16; do
-            (cd "output/$device" && zip "flash_$device.zip" "flash_$device.bin")
+            python3 -c 'import sys,zipfile; d=sys.argv[1]; zipfile.ZipFile(f"output/{d}/flash_{d}.zip", "w", zipfile.ZIP_DEFLATED).write(f"output/{d}/flash_{d}.bin", f"flash_{d}.bin")' "$device"
             cp "output/$device/flash_$device.zip" release-staging/
           done
           echo "kernel ${{ steps.vers.outputs.kver }} + busybox ${{ steps.vers.outputs.bver }}" > release-staging/versions.txt

@@ -26,7 +26,7 @@ ARG QEMU_TARBALL_URL=https://github.com/espressif/qemu/releases/download/esp-dev
 # Build dependencies (toolchain/kernel/busybox) + QEMU runtime libs.
 RUN apt-get update && apt-get -y install --no-install-recommends \
     gperf bison flex texinfo help2man gawk libtool-bin \
-    git unzip rsync zlib1g zlib1g-dev xz-utils curl ca-certificates \
+    git unzip zip rsync zlib1g zlib1g-dev xz-utils curl ca-certificates \
     cmake wget bzip2 g++ gcc make file patch python3 python3-dev python3-pip \
     python3-venv cpio bc libncurses-dev libssl-dev libexpat1-dev \
     libusb-1.0-0 libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 \
