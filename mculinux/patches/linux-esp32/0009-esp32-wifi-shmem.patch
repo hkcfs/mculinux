@@ -1,0 +1,456 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: MCUlinux <hkcfs@example.com>
+Date: Tue, 9 Sep 2026 00:00:00 +0000
+Subject: [PATCH 9/9] net: add ESP32-S3 WiFi over shared memory (lean Ethernet)
+
+Binds the wifi@1 child of esp,esp32-ipc (IPC client slot 1) as a plain
+Ethernet netdev. Frames cross cores in esp-hosted payload format through
+the IPC queues; Core 0 (ESP-IDF network_adapter) owns WPA/auth and the
+radio. Credentials stage via SIOCDEVPRIVATE (wificfg) for a future
+firmware connect command.
+
+--- a/drivers/net/ethernet/Kconfig
++++ b/drivers/net/ethernet/Kconfig
+@@ -190,4 +190,15 @@
+ source "drivers/net/ethernet/xilinx/Kconfig"
+ source "drivers/net/ethernet/xircom/Kconfig"
+ 
++config ESP32_WIFI_SHMEM
++	tristate "Espressif ESP32-S3 WiFi over shared memory"
++	depends on NET && ESP32_IPC
++	help
++	  Plain-Ethernet netdev bound to the wifi@1 child of esp,esp32-ipc
++	  (IPC client slot 1). Frames cross cores in esp-hosted payload
++	  format through the IPC queues; Core 0 (ESP-IDF network_adapter)
++	  owns WPA/auth and the radio. Credentials are staged from Linux
++	  via SIOCDEVPRIVATE (see wificfg) for a future firmware
++	  connect command; today the firmware uses its own config.
++
+ endif # ETHERNET
+--- a/drivers/net/ethernet/Makefile
++++ b/drivers/net/ethernet/Makefile
+@@ -105,3 +105,4 @@
+ obj-$(CONFIG_NET_VENDOR_SYNOPSYS) += synopsys/
+ obj-$(CONFIG_NET_VENDOR_PENSANDO) += pensando/
+ obj-$(CONFIG_OA_TC6) += oa_tc6.o
++obj-$(CONFIG_ESP32_WIFI_SHMEM) += esp32-wifi-shmem.o
+--- /dev/null
++++ b/drivers/net/ethernet/esp32-wifi-shmem.c
+@@ -0,0 +1,417 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Espressif ESP32-S3 WiFi over shared memory (lean Ethernet netdev).
++ *
++ * Binds the wifi@1 child of esp,esp32-ipc (IPC client slot 1) and exposes
++ * it as a plain Ethernet interface. Frames cross cores in esp-hosted
++ * payload format (esp_payload_header + 802.3 frame) through the IPC queues.
++ * Layout verified against esp_hosted_ng/host/include/adapter.h.
++ *
++ * Split-core model: Core 0 (ESP-IDF network_adapter) owns WPA/auth and the
++ * radio; Linux sees link-layer Ethernet. No supplicant, no cfg80211 here.
++ *
++ * Buffer model: TX buffers are Linux-kmalloc'd and dcache-flushed before
++ * handoff (firmware invalidates on receive). RX buffers are
++ * firmware-owned; read through a per-packet uncached ioremap and validated
++ * before use. Accepted RX window is internal SRAM (firmware DRAM heap);
++ * anything outside is dropped and counted.
++ *
++ * Credentials: staged via SIOCDEVPRIVATE (see wificfg) for a future
++ * firmware connect command. Today the firmware uses its own config; the
++ * ioctl only stores the credentials and logs SSID receipt (never the
++ * passphrase). Carrier is assumed ON at open: no link signalling exists
++ * in this transport version.
++ */
++
++#include <linux/bitops.h>
++#include <linux/byteorder/generic.h>
++#include <linux/errno.h>
++#include <linux/etherdevice.h>
++#include <linux/if_ether.h>
++#include <linux/io.h>
++#include <linux/list.h>
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/netdevice.h>
++#include <linux/of.h>
++#include <linux/of_device.h>
++#include <linux/platform_device.h>
++#include <linux/slab.h>
++#include <linux/sockios.h>
++#include <linux/spinlock.h>
++#include <linux/string.h>
++#include <linux/uaccess.h>
++
++#include <asm/cacheflush.h>
++#include <asm/page.h>
++#include <linux/esp32-ipc-api.h>
++
++/* Must match the firmware (esp_payload_header, packed, little-endian). */
++#define ESP_HDR_LEN		12
++#define ESP_IF_TYPE_STA		0
++#define ESP_PKT_TYPE_DATA	0
++#define ESP_MAX_FRAME		1600
++
++/* Firmware DRAM heap window (internal SRAM). RX pointers outside are dropped. */
++#define FW_DRAM_BEGIN		0x3fc80000u
++#define FW_DRAM_END		0x3fd00000u
++
++/* IPC client slots on our side; must match firmware (ESP_IPC_WIFI_ADDR=1). */
++#define ESP32_IPC_CLIENTS_MAX	4
++
++struct esp_ipc_wifi_hdr {
++	u8 if_type_num;		/* if_num << 4 | if_type */
++	u8 flags;
++	u8 packet_type;
++	u8 reserved1;
++	__le16 len;		/* payload length */
++	__le16 offset;		/* header length (12) */
++	__le16 checksum;	/* byte sum over header + payload */
++	u8 reserved2;
++} __packed;
++
++struct esp32_wifi_cfg {
++	u8 ssid[32];
++	u8 ssid_len;
++	u8 pass[64];
++	u8 pass_len;
++};
++
++struct esp32_wifi_tx {
++	struct list_head list;
++	u32 tag;
++	void *buf;
++};
++
++struct esp32_wifi {
++	struct net_device *dev;
++	void *ipc;
++	u32 slot;
++	spinlock_t tx_lock;	/* pending list + tx stats */
++	struct list_head tx_pending;
++	struct net_device_stats stats;
++	struct esp32_wifi_cfg creds;
++	bool dead;
++};
++
++static u16 esp_checksum(const u8 *buf, u16 len)
++{
++	u16 sum = 0, i;
++
++	for (i = 0; i < len; ++i)
++		sum += buf[i];
++	return sum;
++}
++
++static void esp32_wifi_reap(struct esp32_wifi *priv, u32 done)
++{
++	struct esp32_wifi_tx *e, *tmp;
++	unsigned long flags;
++
++	spin_lock_irqsave(&priv->tx_lock, flags);
++	list_for_each_entry_safe(e, tmp, &priv->tx_pending, list) {
++		if ((s32)(done - e->tag) > 0) {
++			list_del(&e->list);
++			kfree(e->buf);
++			kfree(e);
++		}
++	}
++	if (!list_empty(&priv->tx_pending))
++		netif_wake_queue(priv->dev);
++	spin_unlock_irqrestore(&priv->tx_lock, flags);
++}
++
++/* Firmware -> Linux path. Runs in the IPC thread (process context). */
++static int esp32_wifi_rx(void *p, void *data)
++{
++	struct esp32_wifi *priv = p;
++	struct esp_ipc_wifi_hdr hdr;
++	struct sk_buff *skb;
++	void __iomem *map;
++	phys_addr_t addr = (phys_addr_t)(uintptr_t)data;
++	u16 len, offset;
++	void *copy;
++
++	if (priv->dead)
++		return 0;
++	if (!data)
++		return 1;
++
++	/* Accept only firmware-DRAM pointers; everything else is dropped. */
++	if (addr < FW_DRAM_BEGIN || addr >= FW_DRAM_END) {
++		priv->stats.rx_dropped++;
++		return 1;
++	}
++
++	map = ioremap(addr, ESP_HDR_LEN);
++	if (!map) {
++		priv->stats.rx_dropped++;
++		return 1;
++	}
++	memcpy_fromio(&hdr, map, ESP_HDR_LEN);
++	iounmap(map);
++
++	len = le16_to_cpu(hdr.len);
++	offset = le16_to_cpu(hdr.offset);
++	if (hdr.packet_type != ESP_PKT_TYPE_DATA || offset != ESP_HDR_LEN ||
++	    len > ESP_MAX_FRAME || len < ETH_HLEN) {
++		priv->stats.rx_dropped++;
++		return 1;
++	}
++
++	map = ioremap(addr, offset + len);
++	if (!map) {
++		priv->stats.rx_dropped++;
++		return 1;
++	}
++	skb = dev_alloc_skb(len + NET_IP_ALIGN);
++	if (!skb) {
++		iounmap(map);
++		priv->stats.rx_dropped++;
++		return 1;
++	}
++	skb_reserve(skb, NET_IP_ALIGN);
++	copy = skb_put(skb, len);
++	memcpy_fromio(copy, map + offset, len);
++	iounmap(map);
++
++	skb->protocol = eth_type_trans(skb, priv->dev);
++	priv->stats.rx_packets++;
++	priv->stats.rx_bytes += len;
++	netif_rx(skb);
++	return 1;
++}
++
++/* Write-queue drain state from firmware: free our consumed TX buffers. */
++static void esp32_wifi_rx_batch_done(void *p, u32 tag)
++{
++	struct esp32_wifi *priv = p;
++
++	if (!priv->dead)
++		esp32_wifi_reap(priv, tag);
++}
++
++static netdev_tx_t esp32_wifi_xmit(struct sk_buff *skb, struct net_device *dev)
++{
++	struct esp32_wifi *priv = netdev_priv(dev);
++	struct esp_ipc_wifi_hdr *hdr;
++	struct esp32_wifi_tx *e;
++	u8 *buf;
++	u32 tag;
++	int ret;
++	unsigned long flags;
++
++	if (skb->len > ESP_MAX_FRAME) {
++		dev_kfree_skb(skb);
++		priv->stats.tx_dropped++;
++		return NETDEV_TX_OK;
++	}
++
++	buf = kmalloc(ESP_HDR_LEN + skb->len, GFP_ATOMIC);
++	if (!buf) {
++		dev_kfree_skb(skb);
++		priv->stats.tx_dropped++;
++		return NETDEV_TX_OK;
++	}
++	e = kmalloc(sizeof(*e), GFP_ATOMIC);
++	if (!e) {
++		kfree(buf);
++		dev_kfree_skb(skb);
++		priv->stats.tx_dropped++;
++		return NETDEV_TX_OK;
++	}
++
++	hdr = (struct esp_ipc_wifi_hdr *)buf;
++	hdr->if_type_num = (0 << 4) | ESP_IF_TYPE_STA;
++	hdr->flags = 0;
++	hdr->packet_type = ESP_PKT_TYPE_DATA;
++	hdr->reserved1 = 0;
++	hdr->len = cpu_to_le16(skb->len);
++	hdr->offset = cpu_to_le16(ESP_HDR_LEN);
++	hdr->reserved2 = 0;
++	skb_copy_from_linear_data(skb, buf + ESP_HDR_LEN, skb->len);
++	hdr->checksum = cpu_to_le16(esp_checksum(buf, ESP_HDR_LEN + skb->len));
++
++	/* Make the buffer visible to Core 0 before handing over the pointer. */
++	__flush_dcache_range((unsigned long)buf,
++			     (unsigned long)buf + ESP_HDR_LEN + skb->len);
++
++	ret = esp32_ipc_tx(priv->ipc, priv->slot, (void *)__pa(buf), &tag);
++	dev_kfree_skb(skb);
++	if (ret) {
++		kfree(e);
++		kfree(buf);
++		spin_lock_irqsave(&priv->tx_lock, flags);
++		priv->stats.tx_errors++;
++		spin_unlock_irqrestore(&priv->tx_lock, flags);
++		netif_stop_queue(dev);
++		return NETDEV_TX_BUSY;
++	}
++
++	e->tag = tag;
++	e->buf = buf;
++	spin_lock_irqsave(&priv->tx_lock, flags);
++	list_add_tail(&e->list, &priv->tx_pending);
++	priv->stats.tx_packets++;
++	priv->stats.tx_bytes += skb->len;
++	spin_unlock_irqrestore(&priv->tx_lock, flags);
++	return NETDEV_TX_OK;
++}
++
++static int esp32_wifi_open(struct net_device *dev)
++{
++	/* No link signalling in this transport version; assume link. */
++	netif_carrier_on(dev);
++	netif_start_queue(dev);
++	return 0;
++}
++
++static int esp32_wifi_stop(struct net_device *dev)
++{
++	netif_carrier_off(dev);
++	netif_stop_queue(dev);
++	return 0;
++}
++
++static void esp32_wifi_timeout(struct net_device *dev, unsigned int txqueue)
++{
++	struct esp32_wifi *priv = netdev_priv(dev);
++	unsigned long flags;
++
++	spin_lock_irqsave(&priv->tx_lock, flags);
++	priv->stats.tx_errors++;
++	spin_unlock_irqrestore(&priv->tx_lock, flags);
++	netif_wake_queue(dev);
++}
++
++static int esp32_wifi_mac(struct net_device *dev, void *addr)
++{
++	return eth_mac_addr(dev, addr);
++}
++
++static int esp32_wifi_siocdevprivate(struct net_device *dev,
++					struct ifreq *ifr, void __user *data,
++					int cmd)
++{
++	struct esp32_wifi *priv = netdev_priv(dev);
++	struct esp32_wifi_cfg cfg;
++
++	if (cmd != SIOCDEVPRIVATE)
++		return -EOPNOTSUPP;
++	if (copy_from_user(&cfg, data, sizeof(cfg)))
++		return -EFAULT;
++	if (cfg.ssid_len == 0 || cfg.ssid_len > sizeof(cfg.ssid) ||
++	    cfg.pass_len > sizeof(cfg.pass))
++		return -EINVAL;
++
++	memcpy(&priv->creds, &cfg, sizeof(cfg));
++	netdev_info(dev, "WiFi credentials staged for SSID '%.*s' (%u chars), passphrase %u chars (not shown)\n",
++		    cfg.ssid_len, cfg.ssid, cfg.ssid_len, cfg.pass_len);
++	netdev_info(dev, "note: firmware has no IPC connect command yet; credentials take effect with a future firmware (Part B)\n");
++	return 0;
++}
++
++static struct net_device_stats *
++esp32_wifi_stats(struct net_device *dev)
++{
++	struct esp32_wifi *priv = netdev_priv(dev);
++
++	return &priv->stats;
++}
++
++static const struct net_device_ops esp32_wifi_ops = {
++	.ndo_open		= esp32_wifi_open,
++	.ndo_stop		= esp32_wifi_stop,
++	.ndo_start_xmit		= esp32_wifi_xmit,
++	.ndo_tx_timeout		= esp32_wifi_timeout,
++	.ndo_set_mac_address	= esp32_wifi_mac,
++	.ndo_siocdevprivate	= esp32_wifi_siocdevprivate,
++	.ndo_get_stats		= esp32_wifi_stats,
++};
++
++static int esp32_wifi_probe(struct platform_device *pdev)
++{
++	struct device *parent = pdev->dev.parent;
++	struct esp32_wifi *priv;
++	struct net_device *dev;
++	void *ipc;
++	u32 slot;
++	int ret;
++
++	ipc = parent ? dev_get_drvdata(parent) : NULL;
++	if (!ipc)
++		return -EPROBE_DEFER;
++	if (of_property_read_u32(pdev->dev.of_node, "reg", &slot) ||
++	    slot >= ESP32_IPC_CLIENTS_MAX)
++		return -EINVAL;
++
++	dev = alloc_etherdev(sizeof(*priv));
++	if (!dev)
++		return -ENOMEM;
++	SET_NETDEV_DEV(dev, &pdev->dev);
++	priv = netdev_priv(dev);
++	priv->dev = dev;
++	priv->ipc = ipc;
++	priv->slot = slot;
++	spin_lock_init(&priv->tx_lock);
++	INIT_LIST_HEAD(&priv->tx_pending);
++
++	eth_hw_addr_random(dev);
++	dev->netdev_ops = &esp32_wifi_ops;
++	dev->watchdog_timeo = 5 * HZ;
++
++	ret = register_netdev(dev);
++	if (ret) {
++		free_netdev(dev);
++		return ret;
++	}
++	ret = esp32_ipc_register_rx(ipc, slot, priv,
++				    esp32_wifi_rx, esp32_wifi_rx_batch_done);
++	if (ret) {
++		unregister_netdev(dev);
++		free_netdev(dev);
++		return ret;
++	}
++
++	platform_set_drvdata(pdev, priv);
++	netdev_info(dev, "ESP32-S3 WiFi shmem on IPC slot %u, MAC %pM\n",
++		    slot, dev->dev_addr);
++	return 0;
++}
++
++static void esp32_wifi_remove(struct platform_device *pdev)
++{
++	struct esp32_wifi *priv = platform_get_drvdata(pdev);
++	struct esp32_wifi_tx *e, *tmp;
++
++	if (!priv)
++		return;
++	priv->dead = true;
++	unregister_netdev(priv->dev);
++	list_for_each_entry_safe(e, tmp, &priv->tx_pending, list) {
++		list_del(&e->list);
++		kfree(e->buf);
++		kfree(e);
++	}
++	free_netdev(priv->dev);
++}
++
++static const struct of_device_id esp32_wifi_of_match[] = {
++	{ .compatible = "esp,esp32-wifi-shmem" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, esp32_wifi_of_match);
++
++static struct platform_driver esp32_wifi_driver = {
++	.probe = esp32_wifi_probe,
++	.remove = esp32_wifi_remove,
++	.driver = {
++		.name = "esp32-wifi-shmem",
++		.of_match_table = esp32_wifi_of_match,
++	},
++};
++module_platform_driver(esp32_wifi_driver);
++
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("MCUlinux");
++MODULE_DESCRIPTION("Espressif ESP32-S3 WiFi over shared memory (lean Ethernet)");

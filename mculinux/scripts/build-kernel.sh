@@ -71,6 +71,7 @@ sentinel_ok() { # $1 = patch basename (000N-...)
         0006*) [ -f "$KSRC/arch/xtensa/platforms/esp32/include/platform/serial.h" ] ;;
         0007*) [ -f "$KSRC/arch/xtensa/boot/dts/esp32s3.dtsi" ] ;;
         0008*) [ -f "$KSRC/drivers/gpio/gpio-esp32s3.c" ] ;;
+        0009*) [ -f "$KSRC/drivers/net/ethernet/esp32-wifi-shmem.c" ] ;;
         *) return 1 ;;
     esac
 }
@@ -85,6 +86,22 @@ for patch in "$PATCHES_DIR"/0*.patch; do
     fi
 done
 echo "All ESP32 patches applied."
+
+# Dirty-tree guard: sentinels prove a patch was applied, but not WHICH
+# version. If the patch set changed since this tree was prepared, a stale
+# application would linger silently — fail loud instead. (CI always uses a
+# pristine tree, so this only ever fires on reused dev trees.)
+STAMP="$KSRC/.patches.stamp"
+CUR_STAMP="$(sha256sum "$PATCHES_DIR"/0*.patch | sed "s|$PATCHES_DIR/||")"
+if [ -f "$STAMP" ]; then
+    if [ "$(cat "$STAMP")" != "$CUR_STAMP" ]; then
+        echo "FAIL: patch set changed since $KSRC was prepared."
+        echo "  Remove the tree for a clean rebuild: rm -rf $KSRC"
+        exit 1
+    fi
+else
+    echo "$CUR_STAMP" > "$STAMP"
+fi
 
 # (Patch traces were verified inside the apply loop above.)
 
@@ -103,14 +120,18 @@ echo "Verifying load-bearing symbols..."
 for sym in CONFIG_XTENSA CONFIG_PRINTK CONFIG_PARSE_BOOTPARAM CONFIG_BLOCK \
            CONFIG_MTD_BLOCK CONFIG_EROFS_FS CONFIG_JFFS2_FS CONFIG_SERIAL_ESP32 \
            CONFIG_TTY CONFIG_XTENSA_PLATFORM_ESP32 CONFIG_GPIO_ESP32S3 \
-           CONFIG_GPIO_CDEV CONFIG_I2C CONFIG_I2C_CHARDEV CONFIG_I2C_GPIO; do
+           CONFIG_GPIO_CDEV CONFIG_I2C CONFIG_I2C_CHARDEV CONFIG_I2C_GPIO \
+           CONFIG_NET CONFIG_INET CONFIG_IPV6 CONFIG_PACKET CONFIG_NETDEVICES \
+           CONFIG_ESP32_WIFI_SHMEM; do
     val="$(grep -E "^$sym=|^# $sym is not set$" .config || echo MISSING)"
     echo "  $sym: $val"
 done
 for sym in CONFIG_XTENSA CONFIG_PRINTK CONFIG_PARSE_BOOTPARAM CONFIG_BLOCK \
            CONFIG_MTD_BLOCK CONFIG_EROFS_FS CONFIG_JFFS2_FS CONFIG_SERIAL_ESP32 \
            CONFIG_TTY CONFIG_XTENSA_PLATFORM_ESP32 CONFIG_GPIO_ESP32S3 \
-           CONFIG_GPIO_CDEV CONFIG_I2C CONFIG_I2C_CHARDEV CONFIG_I2C_GPIO; do
+           CONFIG_GPIO_CDEV CONFIG_I2C CONFIG_I2C_CHARDEV CONFIG_I2C_GPIO \
+           CONFIG_NET CONFIG_INET CONFIG_IPV6 CONFIG_PACKET CONFIG_NETDEVICES \
+           CONFIG_ESP32_WIFI_SHMEM; do
     grep -q "^$sym=y$" .config || { echo "FAIL: $sym is not =y after merge"; exit 1; }
 done
 grep -q '^# CONFIG_LD_DEAD_CODE_DATA_ELIMINATION is not set$' .config \

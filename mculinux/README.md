@@ -69,7 +69,7 @@ make image DEVICE=r8n8 && make test DEVICE=r8n8
 
 ### Kernel Patches
 
-ESP32-S3 kernel patches are in `patches/linux-esp32/` (`0001-0008`), plus
+ESP32-S3 kernel patches are in `patches/linux-esp32/` (`0001-0009`), plus
 `fragment.config` — our deltas on upstream `tinyconfig`. Key modifications:
 
 - `gpio-mmio.c`: ESP32 clock GPIO controller support

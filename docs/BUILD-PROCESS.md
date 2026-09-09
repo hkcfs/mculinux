@@ -102,7 +102,7 @@ Always the latest stable unless `KERNEL_VERSION=7.2.4` pins one.
 
 1. Resolves version (`latest-stable.sh`, kernel.org) unless pinned
 2. Acquires pristine source (`/opt/src` prefetch, else cdn/edge.kernel.org)
-3. Applies `patches/linux-esp32/0001-0008` STRICT (any failure = red build;
+3. Applies `patches/linux-esp32/0001-0009` STRICT (any failure = red build;
    already-applied patches are skipped for idempotent re-runs)
 4. `make ARCH=xtensa tinyconfig`, merge fragment, `olddefconfig`
 5. Verifies load-bearing symbols (`PRINTK`, `BLOCK`, `MTD_BLOCK`,
@@ -190,6 +190,26 @@ tools/prebuilt/binaries/
 ```
 
 ---
+
+## WiFi (lean Ethernet over IPC)
+
+**Driver:** `patches/linux-esp32/0009-esp32-wifi-shmem.patch` (`drivers/net/ethernet/esp32-wifi-shmem.c`)
+**Control:** `rootfs/utils/wificfg.c` → `/sbin/wificfg`
+
+Split-core model: Core 0 (ESP-IDF `network_adapter`) owns WPA/auth and the
+radio; Linux sees a plain Ethernet NIC (`eth0`) bound to the `wifi@1`
+IPC-shmem child (client slot 1). Frames cross cores in esp-hosted payload
+format; TX buffers are dcache-flushed, RX pointers are validated
+(firmware-DRAM window only) and read via uncached ioremap.
+
+- No supplicant/iwd/cfg80211 on Linux. `udhcpc` (in busybox) for IPv4,
+  kernel SLAAC for IPv6.
+- `wificfg [if] <ssid> [pass]` stages credentials via SIOCDEVPRIVATE
+  (logged SSID in dmesg, passphrase never logged). Today the firmware
+  uses its own config — staged creds take effect with a future firmware
+  that implements an IPC connect command (Part B).
+- QEMU proof: registration + MAC, `ifconfig up`, DHCP DISCOVERs on the
+  wire (TX counters), ioctl round-trip. No radio in QEMU by design.
 
 ## Step 6: image
 

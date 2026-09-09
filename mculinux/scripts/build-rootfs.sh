@@ -62,6 +62,18 @@ echo "Compiling static init..."
 "${CROSS}gcc" -Os -static -o "$STAGING/sbin/init" "$INIT_SRC"
 chmod +x "$STAGING/sbin/init"
 
+# Tiny static utilities (rootfs/utils/*.c -> /sbin). Fail loud on errors.
+if ls "$MCULINUX_DIR/rootfs/utils/"*.c >/dev/null 2>&1; then
+    echo "Compiling utils..."
+    for util in "$MCULINUX_DIR/rootfs/utils/"*.c; do
+        name="$(basename "$util" .c)"
+        "${CROSS}gcc" -Os -static -o "$STAGING/sbin/$name" "$util" \
+            || { echo "FAIL: util $name did not compile"; exit 1; }
+        chmod +x "$STAGING/sbin/$name"
+        echo "  $name: $(ls -lh "$STAGING/sbin/$name" | awk '{print $5}')"
+    done
+fi
+
 if [ -n "$FAKEROOT" ]; then
     $FAKEROOT mknod -m 600 "$STAGING/dev/console" c 5 1
     $FAKEROOT mknod -m 666 "$STAGING/dev/null" c 1 3
