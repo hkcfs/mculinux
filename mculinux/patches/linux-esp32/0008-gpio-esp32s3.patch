@@ -1,0 +1,245 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: MCUlinux <hkcfs@example.com>
+Date: Tue, 9 Sep 2026 00:00:00 +0000
+Subject: [PATCH 8/8] gpio: add ESP32-S3 GPIO driver, enable gpio0
+
+Drives the 45-pin GPIO block (OUT/IN/ENABLE + W1TS/W1TC atomics) and the
+per-pin IO_MUX function/input-enable bits. No IRQ support yet.
+Enables the gpio0 node (was disabled, no driver) so i2c-gpio and the
+gpiochip chardev have hardware underneath. Register map verified against
+ESP-IDF hal/gpio_ll.h and soc/esp32s3 gpio_reg.h/io_mux_reg.h.
+
+--- a/drivers/gpio/Kconfig
++++ b/drivers/gpio/Kconfig
+@@ -2132,6 +2132,15 @@
+ 	  This driver is aimed as a helper in spotting any regressions in
+ 	  hot-unplug handling in GPIOLIB.
+ 
++config GPIO_ESP32S3
++	tristate "Espressif ESP32-S3 GPIO support"
++	depends on GPIOLIB && OF && (XTENSA_PLATFORM_ESP32 || COMPILE_TEST)
++	help
++	  GPIO driver for the Espressif ESP32-S3 GPIO block (45 usable pins).
++	  Uses the atomic set/clear/enable registers; pin mux and input
++	  enable are handled via the IO_MUX registers. No IRQ support yet
++	  (gpio_to_irq returns -ENXIO), enough for i2c-gpio bit-bang and LEDs.
++
+ endmenu
+ 
+ endif
+--- a/drivers/gpio/Makefile
++++ b/drivers/gpio/Makefile
+@@ -21,6 +21,7 @@
+ 
+ # directly supported by gpio-generic
+ gpio-generic-$(CONFIG_GPIO_GENERIC)	+= gpio-mmio.o
++obj-$(CONFIG_GPIO_ESP32S3)	+= gpio-esp32s3.o
+ 
+ obj-$(CONFIG_GPIO_104_DIO_48E)		+= gpio-104-dio-48e.o
+ obj-$(CONFIG_GPIO_104_IDI_48)		+= gpio-104-idi-48.o
+--- a/arch/xtensa/boot/dts/esp32s3.dtsi
++++ b/arch/xtensa/boot/dts/esp32s3.dtsi
+@@ -117,11 +117,13 @@
+ 		gpio0: gpio@60004000 {
+ 			#gpio-cells = <2>;
+ 			compatible = "esp,esp32s3-gpio";
+-			reg = <0x60004000 0x138>;
++			reg = <0x60004000 0x138>,
++			      <0x60009004 0xc4>;
++			reg-names = "gpio", "iomux";
+ 			interrupts = <16 8 0>; /* GPIO, external IRQ8, CPU0 */
+ 			interrupt-controller;
+ 			#interrupt-cells = <2>;
+-			status = "disabled";
++			status = "okay";
+ 		};
+ 
+ 		gpio_in_mux: gpio_in_mux@60004154 {
+--- /dev/null
++++ b/drivers/gpio/gpio-esp32s3.c
+@@ -0,0 +1,185 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Espressif ESP32-S3 GPIO driver.
++ *
++ * Drives the 45-pin GPIO block: OUT/IN/ENABLE registers with atomic
++ * W1TS/W1TC set/clear (no read-modify-write, no locking needed there),
++ * plus the per-pin IO_MUX function-select and input-enable bits
++ * (read-modify-write under a spinlock).
++ *
++ * No IRQ support yet: gpio_to_irq() returns -ENXIO. Enough for
++ * i2c-gpio bit-bang, LEDs, and gpiochip chardev access.
++ *
++ * Register addresses verified against ESP-IDF hal/gpio_ll.h and
++ * soc/esp32s3 gpio_reg.h/io_mux_reg.h.
++ */
++
++#include <linux/bitops.h>
++#include <linux/errno.h>
++#include <linux/gpio/driver.h>
++#include <linux/io.h>
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/spinlock.h>
++
++#define ESP32S3_NGPIO		49	/* 0-21, 26-48; 22-25 absent (accepted) */
++
++#define GPIO_OUT_REG		0x04
++#define GPIO_OUT_W1TS_REG	0x08
++#define GPIO_OUT_W1TC_REG	0x0c
++#define GPIO_ENABLE_REG		0x20
++#define GPIO_ENABLE_W1TS_REG	0x24
++#define GPIO_ENABLE_W1TC_REG	0x28
++#define GPIO_IN_REG		0x3c
++#define GPIO_BANK_STRIDE	0x0c	/* low bank -> high bank (pins 32+) */
++
++#define IOMUX_PIN_STRIDE	4
++#define IOMUX_MCU_SEL_S		12
++#define IOMUX_MCU_SEL_M		(0x7u << IOMUX_MCU_SEL_S)
++#define IOMUX_FUN_IE		BIT(9)
++#define IOMUX_FUNC_GPIO		1
++
++struct esp32s3_gpio {
++	struct gpio_chip gc;
++	void __iomem *gpio;
++	void __iomem *iomux;
++	/* serialises IO_MUX read-modify-write only */
++	spinlock_t iomux_lock;
++};
++
++static inline struct esp32s3_gpio *to_priv(struct gpio_chip *gc)
++{
++	return gpiochip_get_data(gc);
++}
++
++static inline void __iomem *bank_reg(struct esp32s3_gpio *priv,
++				     unsigned int off, unsigned int gpio)
++{
++	return priv->gpio + off + (gpio / 32) * GPIO_BANK_STRIDE;
++}
++
++/* Route the pin to the GPIO function with the input path enabled. */
++static void iomux_gpio_func(struct esp32s3_gpio *priv, unsigned int gpio)
++{
++	void __iomem *reg = priv->iomux + gpio * IOMUX_PIN_STRIDE;
++	unsigned long flags, v;
++
++	spin_lock_irqsave(&priv->iomux_lock, flags);
++	v = readl(reg);
++	v &= ~IOMUX_MCU_SEL_M;
++	v |= IOMUX_FUNC_GPIO << IOMUX_MCU_SEL_S;
++	v |= IOMUX_FUN_IE;
++	writel(v, reg);
++	spin_unlock_irqrestore(&priv->iomux_lock, flags);
++}
++
++static int esp32s3_direction_input(struct gpio_chip *gc, unsigned int offset)
++{
++	struct esp32s3_gpio *priv = to_priv(gc);
++
++	if (offset >= ESP32S3_NGPIO)
++		return -EINVAL;
++	writel(BIT(offset % 32), bank_reg(priv, GPIO_ENABLE_W1TC_REG, offset));
++	iomux_gpio_func(priv, offset);
++	return 0;
++}
++
++static int esp32s3_direction_output(struct gpio_chip *gc, unsigned int offset,
++				    int value)
++{
++	struct esp32s3_gpio *priv = to_priv(gc);
++
++	if (offset >= ESP32S3_NGPIO)
++		return -EINVAL;
++	/* Value first, then enable: glitch-free takeover. */
++	writel(BIT(offset % 32),
++	       bank_reg(priv, value ? GPIO_OUT_W1TS_REG : GPIO_OUT_W1TC_REG,
++			offset));
++	writel(BIT(offset % 32),
++	       bank_reg(priv, GPIO_ENABLE_W1TS_REG, offset));
++	iomux_gpio_func(priv, offset);
++	return 0;
++}
++
++static int esp32s3_get(struct gpio_chip *gc, unsigned int offset)
++{
++	struct esp32s3_gpio *priv = to_priv(gc);
++
++	if (offset >= ESP32S3_NGPIO)
++		return -EINVAL;
++	return !!(readl(bank_reg(priv, GPIO_IN_REG, offset)) & BIT(offset % 32));
++}
++
++static int esp32s3_set(struct gpio_chip *gc, unsigned int offset, int value)
++{
++	struct esp32s3_gpio *priv = to_priv(gc);
++
++	if (offset >= ESP32S3_NGPIO)
++		return -EINVAL;
++	writel(BIT(offset % 32),
++	       bank_reg(priv, value ? GPIO_OUT_W1TS_REG : GPIO_OUT_W1TC_REG,
++			offset));
++	return 0;
++}
++
++static int esp32s3_probe(struct platform_device *pdev)
++{
++	struct esp32s3_gpio *priv;
++	struct resource *res;
++	int ret;
++
++	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
++	if (!priv)
++		return -ENOMEM;
++	spin_lock_init(&priv->iomux_lock);
++
++	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "gpio");
++	priv->gpio = devm_ioremap_resource(&pdev->dev, res);
++	if (IS_ERR(priv->gpio))
++		return PTR_ERR(priv->gpio);
++
++	/* IO_MUX is shared (syscon claims the region): non-exclusive map. */
++	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "iomux");
++	priv->iomux = devm_ioremap(&pdev->dev, res->start, resource_size(res));
++	if (!priv->iomux)
++		return -ENOMEM;
++
++	priv->gc.label = dev_name(&pdev->dev);
++	priv->gc.parent = &pdev->dev;
++	priv->gc.owner = THIS_MODULE;
++	priv->gc.base = -1;
++	priv->gc.ngpio = ESP32S3_NGPIO;
++	priv->gc.get = esp32s3_get;
++	priv->gc.set = esp32s3_set;
++	priv->gc.direction_input = esp32s3_direction_input;
++	priv->gc.direction_output = esp32s3_direction_output;
++
++	ret = devm_gpiochip_add_data(&pdev->dev, &priv->gc, priv);
++	if (ret)
++		return ret;
++
++	dev_info(&pdev->dev, "ESP32-S3 GPIO: %u pins, no IRQ (yet)\n",
++		 ESP32S3_NGPIO);
++	return 0;
++}
++
++static const struct of_device_id esp32s3_gpio_of_match[] = {
++	{ .compatible = "esp,esp32s3-gpio" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, esp32s3_gpio_of_match);
++
++static struct platform_driver esp32s3_gpio_driver = {
++	.probe = esp32s3_probe,
++	.driver = {
++		.name = "gpio-esp32s3",
++		.of_match_table = esp32s3_gpio_of_match,
++	},
++};
++module_platform_driver(esp32s3_gpio_driver);
++
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("MCUlinux");
++MODULE_DESCRIPTION("Espressif ESP32-S3 GPIO driver");

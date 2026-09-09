@@ -102,7 +102,7 @@ Always the latest stable unless `KERNEL_VERSION=7.2.4` pins one.
 
 1. Resolves version (`latest-stable.sh`, kernel.org) unless pinned
 2. Acquires pristine source (`/opt/src` prefetch, else cdn/edge.kernel.org)
-3. Applies `patches/linux-esp32/0001-0007` STRICT (any failure = red build;
+3. Applies `patches/linux-esp32/0001-0008` STRICT (any failure = red build;
    already-applied patches are skipped for idempotent re-runs)
 4. `make ARCH=xtensa tinyconfig`, merge fragment, `olddefconfig`
 5. Verifies load-bearing symbols (`PRINTK`, `BLOCK`, `MTD_BLOCK`,

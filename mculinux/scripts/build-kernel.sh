@@ -70,6 +70,7 @@ sentinel_ok() { # $1 = patch basename (000N-...)
         0005*) [ -f "$KSRC/drivers/tty/serial/esp32_uart.c" ] ;;
         0006*) [ -f "$KSRC/arch/xtensa/platforms/esp32/include/platform/serial.h" ] ;;
         0007*) [ -f "$KSRC/arch/xtensa/boot/dts/esp32s3.dtsi" ] ;;
+        0008*) [ -f "$KSRC/drivers/gpio/gpio-esp32s3.c" ] ;;
         *) return 1 ;;
     esac
 }
@@ -101,13 +102,15 @@ make ARCH=xtensa olddefconfig
 echo "Verifying load-bearing symbols..."
 for sym in CONFIG_XTENSA CONFIG_PRINTK CONFIG_PARSE_BOOTPARAM CONFIG_BLOCK \
            CONFIG_MTD_BLOCK CONFIG_EROFS_FS CONFIG_JFFS2_FS CONFIG_SERIAL_ESP32 \
-           CONFIG_TTY CONFIG_XTENSA_PLATFORM_ESP32; do
+           CONFIG_TTY CONFIG_XTENSA_PLATFORM_ESP32 CONFIG_GPIO_ESP32S3 \
+           CONFIG_GPIO_CDEV CONFIG_I2C CONFIG_I2C_CHARDEV CONFIG_I2C_GPIO; do
     val="$(grep -E "^$sym=|^# $sym is not set$" .config || echo MISSING)"
     echo "  $sym: $val"
 done
 for sym in CONFIG_XTENSA CONFIG_PRINTK CONFIG_PARSE_BOOTPARAM CONFIG_BLOCK \
            CONFIG_MTD_BLOCK CONFIG_EROFS_FS CONFIG_JFFS2_FS CONFIG_SERIAL_ESP32 \
-           CONFIG_TTY CONFIG_XTENSA_PLATFORM_ESP32; do
+           CONFIG_TTY CONFIG_XTENSA_PLATFORM_ESP32 CONFIG_GPIO_ESP32S3 \
+           CONFIG_GPIO_CDEV CONFIG_I2C CONFIG_I2C_CHARDEV CONFIG_I2C_GPIO; do
     grep -q "^$sym=y$" .config || { echo "FAIL: $sym is not =y after merge"; exit 1; }
 done
 grep -q '^# CONFIG_LD_DEAD_CODE_DATA_ELIMINATION is not set$' .config \
