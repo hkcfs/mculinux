@@ -23,6 +23,7 @@ mculinux/build/linux-*src/
 
 # Tools - allowlist prebuilt binaries
 mculinux/tools/*
+!mculinux/tools/gen_esp32part.py
 !mculinux/tools/prebuilt/
 !mculinux/tools/prebuilt/**
 

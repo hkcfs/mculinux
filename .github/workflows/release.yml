@@ -65,10 +65,14 @@ jobs:
           cd mculinux
           ./scripts/build-busybox-nommu.sh
 
-      - name: Build etc.jffs2 + partition tables
+      - name: Build etc.jffs2
         run: |
           cd mculinux
           ./scripts/build-etc-jffs2.sh
+
+      - name: Build partition tables
+        run: |
+          cd mculinux
           ./scripts/build-partition-tables.sh
 
       - name: Assemble + test all devices
