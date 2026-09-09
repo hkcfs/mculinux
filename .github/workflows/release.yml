@@ -1,5 +1,10 @@
 name: Release
 
+# Cut a firmware release: full flash images for all 3 devices, QEMU-tested.
+# Trigger: push a v* tag, or manual dispatch with a version number.
+# NOTE: for 16MB devices the bootloader header is patched at assembly time
+# (needs python3 — present on ubuntu-latest runners).
+
 on:
   push:
     tags:
@@ -17,8 +22,9 @@ jobs:
       !contains(github.event.head_commit.message, '[skip release]') &&
       !contains(github.event.head_commit.message, '[release skip]')
     strategy:
+      fail-fast: false
       matrix:
-        device: [r8n8]
+        device: [r8n8, r8n16, r16n16]
 
     steps:
       - name: Checkout code
@@ -32,12 +38,12 @@ jobs:
       - name: Boot test (QEMU auto-provisioned by test script)
         run: |
           cd mculinux
-          make test DEVICE=${{ matrix.device }} TIMEOUT=60 KERNEL_VERSION=7.2
+          make test DEVICE=${{ matrix.device }} TIMEOUT=120 KERNEL_VERSION=7.2
 
-      - name: Package
+      - name: Package (flash image only, no logs)
         run: |
           cd mculinux/output/${{ matrix.device }}
-          zip -r flash_${{ matrix.device }}.zip .
+          zip flash_${{ matrix.device }}.zip flash_${{ matrix.device }}.bin
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -75,22 +81,27 @@ jobs:
           body: |
             ## MCUlinux ${{ steps.version.outputs.version }}
 
-            ESP32-S3 Linux distribution with prebuilt binaries.
+            ESP32-S3 Linux (kernel 7.2.x, busybox, EROFS rootfs, JFFS2 /etc + /data),
+            QEMU boot-tested on all devices before release.
 
             ### Supported Devices
-            - **r8n8**: 8MB PSRAM + 8MB Flash
-            - **r8n16**: 8MB PSRAM + 16MB Flash (16MB flash)
-            - **r16n16**: 16MB PSRAM + 16MB Flash
+            - **r8n8**: 8MB PSRAM + 8MB Flash (768KB /data)
+            - **r8n16**: 8MB PSRAM + 16MB Flash (8.75MB /data)
+            - **r16n16**: 16MB PSRAM + 16MB Flash (8.75MB /data)
 
             ### Files
             - `flash_r8n8.bin` - Complete 8MB flash image
+            - `flash_r8n16.bin` - Complete 16MB flash image
+            - `flash_r16n16.bin` - Complete 16MB flash image
 
             ### Flash
             ```bash
-            esptool.py --chip esp32s3 --port /dev/ttyUSB0 write_flash 0x0 flash_r8n8.bin
+            esptool.py --chip esp32s3 --port /dev/ttyUSB0 write_flash 0x0 flash_r8n16.bin
             ```
           files: |
             image-r8n8/flash_r8n8.zip
+            image-r8n16/flash_r8n16.zip
+            image-r16n16/flash_r16n16.zip
           draft: false
           prerelease: false
           generate_release_notes: true

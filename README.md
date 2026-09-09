@@ -1,31 +1,31 @@
 # MCUlinux
 
-Linux on a microcontroller. ESP32-S3 boots mainline Linux 6.16 in ~5 seconds.
+Linux on a microcontroller. ESP32-S3 boots Linux 7.2.x in ~1 second.
 
 **Website:** [hkcfs.github.io/mculinux](https://hkcfs.github.io/mculinux/)
 
 ## What is this?
 
-MCUlinux runs a full Linux kernel on the ESP32-S3 — a $5 microcontroller with 8MB PSRAM. It uses a trimmed 2.8MB kernel, an EROFS+LZMA root filesystem (2.5MB), and boots from an 8MB SPI flash chip. No MMU, no SD card, no Linux board — just a soldering iron and a serial port.
+MCUlinux runs a full Linux kernel on the ESP32-S3 — a $5 microcontroller with 8/16MB PSRAM. It uses a trimmed 1.8MB XIP kernel (upstream tinyconfig + our fragment), an EROFS+LZMA root filesystem (1.1MB), JFFS2 `/etc` + `/data`, and boots from SPI flash. No MMU, no SD card, no Linux board — just a soldering iron and a serial port.
 
 ## Supported Devices
 
-| Device | PSRAM | Flash | Status |
-|--------|-------|-------|--------|
-| r8n8 | 8MB | 8MB | Working |
-| r8n16 | 8MB | 16MB | Working |
-| r16n16 | 16MB | 16MB | Working |
+| Device | PSRAM | Flash | /data | Status |
+|--------|-------|-------|-------|--------|
+| r8n8 | 8MB | 8MB | 768KB | Working |
+| r8n16 | 8MB | 16MB | 8.75MB | Working |
+| r16n16 | 16MB | 16MB | 8.75MB | Working |
 
 ## Quick Start
 
 ### Flash to hardware
 
 ```bash
-# Download latest release
-wget https://github.com/hkcfs/mculinux/releases/latest/download/flash_r8n8.bin
+# Download latest release (or build: make image DEVICE=r8n16)
+wget https://github.com/hkcfs/mculinux/releases/latest/download/flash_r8n16.bin
 
 # Flash (adjust port for your system)
-esptool.py --chip esp32s3 --port /dev/ttyUSB0 write_flash 0x0 flash_r8n8.bin
+esptool.py --chip esp32s3 --port /dev/ttyUSB0 write_flash 0x0 flash_r8n16.bin
 
 # Connect (115200 baud)
 screen /dev/ttyUSB0 115200
@@ -34,62 +34,59 @@ screen /dev/ttyUSB0 115200
 ### Test in QEMU (no hardware needed)
 
 ```bash
-# Install QEMU
-sudo apt install qemu-system-misc
-
-# Boot
-qemu-system-xtensa -M esp32s3 -nographic -m 8M \
-  -global driver=ssi_psram,property=is_octal,value=true \
-  -drive file=flash_r8n8.bin,if=mtd,format=raw
+cd mculinux
+./scripts/install-qemu-esp32.sh   # Espressif QEMU fork (has the esp32s3 machine)
+make image DEVICE=r8n16 && make test DEVICE=r8n16
 ```
 
 ## Building
 
 ```bash
-# Clone
-git clone https://github.com/hkcfs/mculinux.git
-cd mculinux/mculinux
+cd mculinux
 
-# One-time setup (downloads toolchain, Buildroot, ~30 min)
-make setup
+# One-time setup (toolchain tarball, dynconfig, esp-hosted)
+./scripts/setup.sh
 
-# Full build (kernel + flash image + QEMU test)
-make rebuild
-
-# Or step by step
-make kernel-package    # Build kernel from fork
-make image DEVICE=r8n8 # Assemble flash image
-make test DEVICE=r8n8  # Boot in QEMU
+# Full build: latest stable kernel + busybox, from source
+make kernel && make busybox && make etc
+make image DEVICE=r8n16
+make test DEVICE=r8n16
 ```
+
+No Buildroot: the kernel builds from upstream `tinyconfig` + `patches/linux-esp32/fragment.config`,
+the rootfs assembles from `rootfs/` + latest stable busybox.
 
 ### Build Targets
 
 | Target | Description |
 |--------|-------------|
-| `make setup` | One-time setup (toolchain, Buildroot, esp-hosted) |
-| `make rebuild` | Quick rebuild (kernel + image + test) |
-| `make kernel-package` | Build kernel from fork (no Docker) |
-| `make image DEVICE=r8n8` | Assemble flash image |
-| `make test DEVICE=r8n8` | QEMU boot test |
+| `make kernel` | Linux xipImage, latest stable (tinyconfig + fragment) |
+| `make busybox` | busybox NOMMU, latest stable + assemble rootfs |
+| `make etc` | etc.jffs2 from rootfs/etc |
+| `make partitions` | partition-table binaries from partitions/*.csv |
+| `make image DEVICE=r8n16` | Assemble flash image |
+| `make test DEVICE=r8n16` | QEMU boot test (kernel/tty/login/mounts) |
 | `make run` | Interactive QEMU with retry loop |
-| `make bootloader` | Build WiFi bootloader (needs Docker) |
+| `make bootloader` | WiFi bootloader (idf:latest Docker, manual) |
 | `make compress` | Compare filesystem compression |
-| `make clean` | Clean output and build caches |
+| `make latest` | Print latest stable kernel versions |
+| `make clean` | Clean output |
 
-## Docker Builder
+## Docker Images
 
-A pre-built Docker image is available with all build dependencies:
+Pre-built images on GHCR (rebuilt weekly with latest Ubuntu/kernel/busybox):
 
 ```bash
-# Pull the builder image
-docker pull ghcr.io/hkcfs/mculinux/builder:latest
+# Full builds (kernel + userspace from source)
+docker run --rm -v $(pwd):/work -w /work/mculinux \
+  ghcr.io/hkcfs/mculinux/builder:latest make kernel
 
-# Run a build
-docker run --rm -v $(pwd):/app -w /app/mculinux \
-  ghcr.io/hkcfs/mculinux/builder:latest make rebuild
+# Fast Boot tests (assemble prebuilts + QEMU)
+docker run --rm -v $(pwd):/work -w /work/mculinux \
+  ghcr.io/hkcfs/mculinux/tester:latest make test DEVICE=r8n16
 ```
 
-The image is built automatically by CI when `mculinux/docker/Dockerfile` changes.
+Built automatically by CI from `mculinux/docker/Dockerfile.{builder,tester}`.
 
 ## Documentation
 
@@ -103,23 +100,26 @@ All documentation is in the [`docs/`](./docs/) folder:
 | [rootfs-filesystem-comparison.md](./docs/rootfs-filesystem-comparison.md) | Comparing EROFS, SquashFS, CramFS |
 | [GENERIC-KERNEL-TEST.md](./docs/GENERIC-KERNEL-TEST.md) | Testing mainline kernel (negative result) |
 | [ALPINE-PORT-RESEARCH.md](./docs/ALPINE-PORT-RESEARCH.md) | Alpine Linux port investigation |
+| [BRINGUP-7.2.3.md](./docs/BRINGUP-7.2.3.md) | 7.2 port bringup notes (historical) |
+| [OPTIMIZATION-EXPERIMENTS.md](./docs/OPTIMIZATION-EXPERIMENTS.md) | Memory diet experiments E0-E9 |
 
 ## Repository Structure
 
 ```
 mculinux/
-├── .github/workflows/     # CI/CD (build, deploy, release)
+├── .github/workflows/     # CI/CD (build, docker, release, deploy-website)
 ├── docs/                  # Documentation and research
 ├── mculinux/              # Build system
 │   ├── Makefile           # Main entry point
-│   ├── scripts/           # Build scripts
-│   ├── build/             # Buildroot, toolchain (gitignored)
-│   ├── prebuilt/          # Pre-built bootloader binaries
+│   ├── scripts/           # Build/test scripts (14, all live)
+│   ├── patches/           # linux-esp32 (0001-0007 + fragment) + busybox-nommu
+│   ├── rootfs/            # Skeleton /etc (feeds rootfs.erofs + etc.jffs2)
+│   ├── partitions/        # Partition-table CSVs per flash size
+│   ├── docker/            # Dockerfile.builder/.tester
+│   ├── tools/             # gen_esp32part.py, prebuilt binaries, QEMU
+│   ├── build/             # Toolchain, esp-hosted (gitignored)
 │   └── output/            # Build output (gitignored)
-├── mculinux-packages/     # Package definitions
-│   ├── arch/esp32s3/      # Architecture config
-│   └── packages/          # APKBUILD manifests
-└── website/               # GitHub Pages site
+└── website/               # GitHub Pages site + web flasher
 ```
 
 ## Architecture
@@ -131,32 +131,35 @@ mculinux/
 │bootloader│partition │ network  │ etc.jffs2  │
 │  0x00000 │  0x08000 │  0x10000 │  0x0B0000  │
 ├──────────┴──────────┴──────────┴────────────┤
-│           xipImage (2.8MB)                  │
+│           xipImage (1.8MB)                  │
 │              0x120000                       │
 ├─────────────────────────────────────────────┤
-│         rootfs.erofs (2.5MB)                │
-│              0x480000                       │
+│         rootfs.erofs (1.1MB)                │
+│              0x500000                       │
+├─────────────────────────────────────────────┤
+│      data.jffs2 (768K / 8.75MB)             │
+│              0x740000                       │
 └─────────────────────────────────────────────┘
 
-Kernel: Linux 6.16.0 (jcmvbkbc/linux-xtensa fork)
-Rootfs: EROFS + LZMA level 109 (2.5MB)
-Toolchain: crosstool-NG 1.25.0.183 (xtensa-esp32s3-linux-muslfdpic)
+Kernel: Linux 7.2.x (vanilla + patches/linux-esp32, tinyconfig + fragment)
+Rootfs: EROFS + LZMA (1.1MB) + JFFS2 /etc (448KB) + JFFS2 /data (tail)
+Toolchain: xtensa-esp32s3-linux-muslfdpic-gcc 14.0.1 (musl FDPIC)
 ```
 
 ## Technical Details
 
-- **Kernel**: Mainline Linux 6.16 with ESP32-S3 support from [jcmvbkbc/linux-xtensa](https://github.com/jcmvbkbc/linux-xtensa) fork
-- **Rootfs**: Alpine-style packages built with EROFS+LZMA compression (smallest option at 2.5MB)
-- **Toolchain**: musl-based cross-compiler with FDPIC binary format
+- **Kernel**: Vanilla kernel.org stable (always latest in CI) + ESP32-S3 patches (UART, IRQ, MTD, IPC, GPIO-clk, platform, DTS)
+- **Rootfs**: busybox (always latest stable, NOMMU) + static init, EROFS+LZMA
+- **Writable storage**: JFFS2 `/etc` (448KB) and `/data` (flash tail: 768KB–8.75MB)
+- **Toolchain**: musl-based cross-compiler with FDPIC binary format (prebuilt release tarball)
 - **Boot**: Network adapter firmware loads XIP kernel from SPI flash
-- **QEMU**: Supports testing without hardware (`qemu-system-xtensa -M esp32s3`)
+- **QEMU**: Espressif fork (`-M esp32s3`); r16n16 emulated with full 16MB PSRAM
 
 ## Links
 
 - **Website:** [hkcfs.github.io/mculinux](https://hkcfs.github.io/mculinux/)
 - **Releases:** [github.com/hkcfs/mculinux/releases](https://github.com/hkcfs/mculinux/releases)
-- **Kernel fork:** [jcmvbkbc/linux-xtensa](https://github.com/jcmvbkbc/linux-xtensa)
-- **Buildroot fork:** [jcmvbkbc/buildroot](https://github.com/jcmvbkbc/buildroot)
+- **Actions:** [github.com/hkcfs/mculinux/actions](https://github.com/hkcfs/mculinux/actions)
 
 ## License
 

@@ -7,7 +7,7 @@ Host system needs only:
 - `make` - orchestrate builds
 - `docker` - (optional) match CI exactly; native builds work too
 
-Native builds additionally need: cross-toolchain (via `make setup`),
+Native builds additionally need: cross-toolchain (via `scripts/setup.sh`),
 `mkfs.erofs` (erofs-utils), `mkfs.jffs2` (mtd-utils, only for `make etc`),
 `fakeroot` (deterministic image ownership, optional).
 
@@ -19,7 +19,7 @@ the rootfs assembles from `mculinux/rootfs/` + busybox.
 ## Build Targets
 
 ```
-make setup          # One-time setup (toolchain tarball, dynconfig, esp-hosted)
+./scripts/setup.sh  # One-time setup (toolchain tarball, dynconfig, esp-hosted)
 make kernel         # Linux xipImage, latest stable, tinyconfig + fragment
 make busybox        # busybox NOMMU, latest stable + assemble rootfs.erofs
 make etc            # etc.jffs2 from rootfs/etc (needs mkfs.jffs2)

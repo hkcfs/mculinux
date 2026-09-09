@@ -168,25 +168,22 @@ esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 115200 \
 
                 <section id="build">
                     <h2>Building</h2>
-                    <p>MCUlinux uses Buildroot and a musl-based cross-compiler (crosstool-NG 1.25.0.183). No Docker required.</p>
+                    <p>MCUlinux builds the kernel from upstream <code>tinyconfig</code> plus our fragment, and assembles the rootfs from skeleton + latest busybox. No Buildroot, no Docker required.</p>
 
                     <pre><code># Clone
 git clone https://github.com/hkcfs/mculinux.git
 cd mculinux/mculinux
 
-# One-time setup (downloads toolchain, Buildroot, ~30 min)
-make setup
+# One-time setup (toolchain tarball, dynconfig, esp-hosted)
+./scripts/setup.sh
 
-# Full build (kernel + flash image + QEMU test)
-make rebuild
-
-# Or step by step
-make kernel-package    # Build kernel from fork
-make image DEVICE=r8n8 # Assemble flash image
-make test DEVICE=r8n8  # Boot in QEMU</code></pre>
+# Full build: latest stable kernel + busybox, from source
+make kernel && make busybox && make etc
+make image DEVICE=r8n16
+make test DEVICE=r8n16</code></pre>
 
                     <div class="note">
-                        <strong>Note:</strong> First build takes 1-2 hours. The musl toolchain compilation is the longest step.
+                        <strong>Note:</strong> First build takes ~10 minutes (toolchain is a prebuilt download, kernel + busybox ~2 min each).
                     </div>
                 </section>
 
@@ -197,11 +194,12 @@ make test DEVICE=r8n8  # Boot in QEMU</code></pre>
                             <tr><th>Target</th><th>Description</th></tr>
                         </thead>
                         <tbody>
-                            <tr><td><code>make setup</code></td><td>One-time setup (toolchain, Buildroot, esp-hosted)</td></tr>
-                            <tr><td><code>make rebuild</code></td><td>Quick rebuild (kernel + image + test)</td></tr>
-                            <tr><td><code>make kernel-package</code></td><td>Build kernel from fork (no Docker)</td></tr>
-                            <tr><td><code>make image DEVICE=r8n8</code></td><td>Assemble flash image</td></tr>
-                            <tr><td><code>make test DEVICE=r8n8</code></td><td>QEMU boot test</td></tr>
+                            <tr><td><code>make kernel</code></td><td>Linux xipImage, latest stable (tinyconfig + fragment)</td></tr>
+                            <tr><td><code>make busybox</code></td><td>busybox NOMMU, latest stable + assemble rootfs</td></tr>
+                            <tr><td><code>make etc</code></td><td>etc.jffs2 from rootfs/etc</td></tr>
+                            <tr><td><code>make partitions</code></td><td>partition-table binaries from CSVs</td></tr>
+                            <tr><td><code>make image DEVICE=r8n16</code></td><td>Assemble flash image</td></tr>
+                            <tr><td><code>make test DEVICE=r8n16</code></td><td>QEMU boot test</td></tr>
                             <tr><td><code>make run</code></td><td>Interactive QEMU with retry loop</td></tr>
                             <tr><td><code>make bootloader</code></td><td>Build WiFi bootloader (needs Docker)</td></tr>
                             <tr><td><code>make compress</code></td><td>Compare filesystem compression</td></tr>
@@ -220,11 +218,14 @@ make test DEVICE=r8n8  # Boot in QEMU</code></pre>
 │bootloader│partition │ network  │ etc.jffs2  │
 │  0x00000 │  0x08000 │  0x10000 │  0x0B0000  │
 ├──────────┴──────────┴──────────┴────────────┤
-│           xipImage (2.8MB)                  │
+│           xipImage (1.8MB)                  │
 │              0x120000                       │
 ├─────────────────────────────────────────────┤
-│         rootfs.erofs (2.5MB)                │
-│              0x480000                       │
+│         rootfs.erofs (1.1MB)                │
+│              0x500000                       │
+├─────────────────────────────────────────────┤
+│      data.jffs2 (768K / 8.75MB)             │
+│              0x740000                       │
 └─────────────────────────────────────────────┘</code></pre>
 
                     <h3>Key Components</h3>
@@ -233,9 +234,10 @@ make test DEVICE=r8n8  # Boot in QEMU</code></pre>
                             <tr><th>Component</th><th>Details</th></tr>
                         </thead>
                         <tbody>
-                            <tr><td>Kernel</td><td>Linux 6.16.0 (<a href="https://github.com/jcmvbkbc/linux-xtensa">jcmvbkbc/linux-xtensa</a> fork)</td></tr>
-                            <tr><td>Rootfs</td><td>Alpine-style packages, EROFS+LZMA level 109 (2.5MB)</td></tr>
-                            <tr><td>Toolchain</td><td>crosstool-NG 1.25.0.183 (<code>xtensa-esp32s3-linux-muslfdpic</code>)</td></tr>
+                            <tr><td>Kernel</td><td>Linux 7.2.x vanilla + ESP32-S3 patches (tinyconfig + fragment)</td></tr>
+                            <tr><td>Rootfs</td><td>Latest busybox (NOMMU) + static init, EROFS+LZMA (1.1MB)</td></tr>
+                            <tr><td>Storage</td><td>JFFS2 <code>/etc</code> (448KB) + JFFS2 <code>/data</code> (flash tail)</td></tr>
+                            <tr><td>Toolchain</td><td>xtensa-esp32s3-linux-muslfdpic-gcc 14.0.1 (musl FDPIC)</td></tr>
                             <tr><td>Boot</td><td>Network adapter firmware loads XIP kernel from SPI flash</td></tr>
                             <tr><td>QEMU</td><td><code>qemu-system-xtensa -M esp32s3</code> (no hardware needed)</td></tr>
                         </tbody>
@@ -249,13 +251,14 @@ make test DEVICE=r8n8  # Boot in QEMU</code></pre>
 ├── docs/                  # Documentation and research
 ├── mculinux/              # Build system
 │   ├── Makefile           # Main entry point
-│   ├── scripts/           # Build scripts
-│   ├── build/             # Buildroot, toolchain (gitignored)
-│   ├── prebuilt/          # Pre-built bootloader binaries
+│   ├── scripts/           # Build/test scripts (all live)
+│   ├── patches/           # linux-esp32 + busybox-nommu
+│   ├── rootfs/            # Skeleton /etc (feeds rootfs + jffs2)
+│   ├── partitions/        # Partition-table CSVs
+│   ├── docker/            # Builder/tester images
+│   ├── tools/             # Prebuilt binaries, QEMU (part gitignored)
+│   ├── build/             # Toolchain, esp-hosted (gitignored)
 │   └── output/            # Build output (gitignored)
-├── mculinux-packages/     # Package definitions
-│   ├── arch/esp32s3/      # Architecture config
-│   └── packages/          # APKBUILD manifests
 └── website/               # GitHub Pages site</code></pre>
                 </section>
 

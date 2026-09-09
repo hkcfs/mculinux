@@ -11,11 +11,14 @@ TIMEOUT="${2:-30}"
 
 FLASH_IMAGE="$MCULINUX_DIR/output/${DEVICE}/flash_${DEVICE}.bin"
 
-# Per-device QEMU memory config
+# Per-device QEMU memory config (matches real hardware PSRAM).
+# r16n16 verified booting with 16M (the old 8M-for-all was a 6.16-era hang
+# workaround). Note: the kernel still sizes RAM from the DT memory node
+# (8MB), so the extra 8MB is visible to hardware but not yet to Linux.
 case "$DEVICE" in
     r8n8)   QEMU_RAM="8M" ;;
     r8n16)  QEMU_RAM="8M" ;;
-    r16n16) QEMU_RAM="8M" ;;  # 16MB RAM causes kernel hang; use 8MB
+    r16n16) QEMU_RAM="16M" ;;
     *)      QEMU_RAM="8M" ;;
 esac
 
@@ -144,7 +147,7 @@ fi
 if echo "$OUTPUT" | grep -q "ttyS0 at MMIO"; then
     HAS_TTY=true
 fi
-if echo "$OUTPUT" | grep -q "buildroot login:\|/ # \|~ # "; then
+if echo "$OUTPUT" | grep -q "/ # \|~ # "; then
     HAS_LOGIN=true
 fi
 if echo "$OUTPUT" | grep -q -- "---MEASURED---"; then

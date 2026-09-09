@@ -1,5 +1,10 @@
 # ESP32-S3 Linux 7.2.3 Bring-Up Notes
 
+> Historical (2026-09-07): references `build/build-buildroot-*`,
+> `patches/linux-7.1.3/`, and `xipImage-7.1`, all since removed. Current
+> flow: tinyconfig + `patches/linux-esp32/fragment.config`, no Buildroot.
+> Kept for the debug trail.
+
 How the 7.2.3 XIP kernel went from "hangs in `memmap_init`" to a root login
 on QEMU `esp32s3` (r8n16, 8M RAM). Written 2026-09-07 after first login.
 

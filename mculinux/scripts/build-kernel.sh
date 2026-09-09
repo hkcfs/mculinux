@@ -55,18 +55,37 @@ fi
 
 cd "$KSRC"
 
-# Apply ESP32 patches STRICT: any failure is fatal. Already-applied patches
-# are skipped (idempotent re-runs); anything else that fails stops the build.
+# Apply ESP32 patches STRICT: any failure is fatal. Idempotency is decided
+# by SENTINELS (a trace each patch must leave), never by `patch` exit codes:
+# GNU patch's skip/already-applied exit status differs between versions
+# (e.g. ubuntu:latest vs debian), and trusting it silently skipped every
+# patch in CI once — no ESP32 symbols, red build, confusing log.
 echo "Applying ESP32 patches..."
+sentinel_ok() { # $1 = patch basename (000N-...)
+    case "$1" in
+        0001*) grep -qF "esp,esp32-clk-gpio" "$KSRC/drivers/gpio/gpio-mmio.c" 2>/dev/null ;;
+        0002*) [ -f "$KSRC/drivers/irqchip/irq-esp32-intc.c" ] ;;
+        0003*) [ -f "$KSRC/drivers/misc/esp32-ipc.c" ] ;;
+        0004*) [ -f "$KSRC/drivers/mtd/chips/map_esp32.c" ] ;;
+        0005*) [ -f "$KSRC/drivers/tty/serial/esp32_uart.c" ] ;;
+        0006*) [ -f "$KSRC/arch/xtensa/platforms/esp32/include/platform/serial.h" ] ;;
+        0007*) [ -f "$KSRC/arch/xtensa/boot/dts/esp32s3.dtsi" ] ;;
+        *) return 1 ;;
+    esac
+}
 for patch in "$PATCHES_DIR"/0*.patch; do
-    if patch -p1 -R --dry-run --batch < "$patch" >/dev/null 2>&1; then
-        echo "  $(basename "$patch") (already applied, skipping)"
+    base="$(basename "$patch")"
+    if sentinel_ok "$base"; then
+        echo "  $base (already applied, skipping)"
     else
-        echo "  $(basename "$patch")"
+        echo "  $base"
         patch -p1 --batch < "$patch" || exit 1
+        sentinel_ok "$base" || { echo "FAIL: $base applied but left no trace"; exit 1; }
     fi
 done
 echo "All ESP32 patches applied."
+
+# (Patch traces were verified inside the apply loop above.)
 
 # Base = upstream tinyconfig (fresh every time, no stale baggage),
 # then our fragment wins, then olddefconfig resolves dependencies.
@@ -77,10 +96,18 @@ make ARCH=xtensa olddefconfig
 
 # Guard against silent misconfiguration (e.g. a malformed fragment line that
 # merge_config.sh ignores): these symbols are load-bearing for boot.
+# Values are dumped first so a failure names every offender, not just the
+# first one in the list.
 echo "Verifying load-bearing symbols..."
-for sym in CONFIG_PRINTK CONFIG_PARSE_BOOTPARAM CONFIG_BLOCK CONFIG_MTD_BLOCK \
-           CONFIG_EROFS_FS CONFIG_JFFS2_FS CONFIG_SERIAL_ESP32 CONFIG_TTY \
-           CONFIG_XTENSA_PLATFORM_ESP32; do
+for sym in CONFIG_XTENSA CONFIG_PRINTK CONFIG_PARSE_BOOTPARAM CONFIG_BLOCK \
+           CONFIG_MTD_BLOCK CONFIG_EROFS_FS CONFIG_JFFS2_FS CONFIG_SERIAL_ESP32 \
+           CONFIG_TTY CONFIG_XTENSA_PLATFORM_ESP32; do
+    val="$(grep -E "^$sym=|^# $sym is not set$" .config || echo MISSING)"
+    echo "  $sym: $val"
+done
+for sym in CONFIG_XTENSA CONFIG_PRINTK CONFIG_PARSE_BOOTPARAM CONFIG_BLOCK \
+           CONFIG_MTD_BLOCK CONFIG_EROFS_FS CONFIG_JFFS2_FS CONFIG_SERIAL_ESP32 \
+           CONFIG_TTY CONFIG_XTENSA_PLATFORM_ESP32; do
     grep -q "^$sym=y$" .config || { echo "FAIL: $sym is not =y after merge"; exit 1; }
 done
 grep -q '^# CONFIG_LD_DEAD_CODE_DATA_ELIMINATION is not set$' .config \

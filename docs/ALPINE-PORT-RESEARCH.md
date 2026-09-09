@@ -123,3 +123,7 @@ sha512sums="..."
 - APKBUILD reference: https://wiki.alpinelinux.org/wiki/APKBUILD_Reference
 - Alpine porting guide: https://wiki.alpinelinux.org/wiki/Developer_Documentation
 - jcmvbkbc esp32-linux-build: https://github.com/jcmvbkbc/esp32-linux-build
+
+> Note (2026-09): the `mculinux-packages/` APKBUILD experiment referenced
+> above was removed — rootfs is assembled from `mculinux/rootfs/` + busybox,
+> no package manager. This doc stays as research.
