@@ -6,7 +6,7 @@ Linux on a microcontroller. ESP32-S3 boots Linux 7.2.x in ~1 second.
 
 ## What is this?
 
-MCUlinux runs a full Linux kernel on the ESP32-S3 — a $5 microcontroller with 8/16MB PSRAM. It uses a trimmed 1.8MB XIP kernel (upstream tinyconfig + our fragment), an EROFS+LZMA root filesystem (1.1MB), JFFS2 `/etc` + `/data`, and boots from SPI flash. No MMU, no SD card, no Linux board — just a soldering iron and a serial port.
+MCUlinux runs a full Linux kernel on the ESP32-S3 — a $5 microcontroller with 8/16MB PSRAM. It uses a ~2.9MB XIP kernel (upstream tinyconfig + our fragment: GPIO, I2C, WiFi Ethernet), an EROFS+LZMA root filesystem (1.2MB), JFFS2 `/etc` + `/data`, and boots from SPI flash. Networking is a lean `eth0` over the ESP-hosted IPC channel (IPv4 via udhcpc, IPv6 via SLAAC; `wificfg` stages credentials). No MMU, no SD card, no Linux board — just a soldering iron and a serial port.
 
 ## Supported Devices
 
@@ -112,7 +112,7 @@ mculinux/
 ├── mculinux/              # Build system
 │   ├── Makefile           # Main entry point
 │   ├── scripts/           # Build/test scripts (14, all live)
-│   ├── patches/           # linux-esp32 (0001-0007 + fragment) + busybox-nommu
+│   ├── patches/           # linux-esp32 (0001-0009 + fragment) + busybox-nommu
 │   ├── rootfs/            # Skeleton /etc (feeds rootfs.erofs + etc.jffs2)
 │   ├── partitions/        # Partition-table CSVs per flash size
 │   ├── docker/            # Dockerfile.builder/.tester
@@ -131,7 +131,7 @@ mculinux/
 │bootloader│partition │ network  │ etc.jffs2  │
 │  0x00000 │  0x08000 │  0x10000 │  0x0B0000  │
 ├──────────┴──────────┴──────────┴────────────┤
-│           xipImage (1.8MB)                  │
+│           xipImage (~2.9MB, WiFi + GPIO)       │
 │              0x120000                       │
 ├─────────────────────────────────────────────┤
 │         rootfs.erofs (1.1MB)                │
@@ -148,8 +148,9 @@ Toolchain: xtensa-esp32s3-linux-muslfdpic-gcc 14.0.1 (musl FDPIC)
 
 ## Technical Details
 
-- **Kernel**: Vanilla kernel.org stable (always latest in CI) + ESP32-S3 patches (UART, IRQ, MTD, IPC, GPIO-clk, platform, DTS)
+- **Kernel**: Vanilla kernel.org stable (always latest in CI) + ESP32-S3 patches (UART, IRQ, MTD, IPC, GPIO-clk, platform, DTS, GPIO-S3, WiFi-SHMEM)
 - **Rootfs**: busybox (always latest stable, NOMMU) + static init, EROFS+LZMA
+- **Networking**: `eth0` lean Ethernet over ESP-hosted IPC shmem, IPv4 (udhcpc) + IPv6 (SLAAC), `wificfg` stages SSID/passphrase via SIOCDEVPRIVATE
 - **Writable storage**: JFFS2 `/etc` (448KB) and `/data` (flash tail: 768KB–8.75MB)
 - **Toolchain**: musl-based cross-compiler with FDPIC binary format (prebuilt release tarball)
 - **Boot**: Network adapter firmware loads XIP kernel from SPI flash

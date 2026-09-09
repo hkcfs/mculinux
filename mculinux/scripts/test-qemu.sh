@@ -140,6 +140,9 @@ HAS_ETC_JFFS2=false
 HAS_ETC_RW=false
 HAS_DATA_JFFS2=false
 HAS_DATA_RW=false
+HAS_WIFI=false
+HAS_GPIO=false
+HAS_I2C=false
 
 if echo "$OUTPUT" | grep -q "Linux version"; then
     HAS_KERNEL=true
@@ -169,6 +172,16 @@ fi
 if echo "$OUTPUT_CLEAN" | grep -qx "DATA_RW_OK"; then
     HAS_DATA_RW=true
 fi
+# Informational only (never gate PASS/FAIL): Stage 1 buses + Stage 2 WiFi.
+if echo "$OUTPUT" | grep -q "esp32-wifi-shmem.*eth0"; then
+    HAS_WIFI=true
+fi
+if echo "$OUTPUT" | grep -q "gpio-esp32s3.*[0-9]* pins"; then
+    HAS_GPIO=true
+fi
+if echo "$OUTPUT" | grep -q "i2c-gpio.*using lines"; then
+    HAS_I2C=true
+fi
 
 # Guest memory/storage/mount report: full outputs of the last captured block.
 # Note on "free disk": / (erofs) is read-only by design and always shows
@@ -196,6 +209,9 @@ echo "  /etc jffs2: $HAS_ETC_JFFS2"
 echo "  /etc writable: $HAS_ETC_RW"
 echo "  /data jffs2: $HAS_DATA_JFFS2"
 echo "  /data writable: $HAS_DATA_RW"
+echo "  WiFi eth0: $HAS_WIFI (info only)"
+echo "  GPIO-S3: $HAS_GPIO (info only)"
+echo "  I2C: $HAS_I2C (info only)"
 echo ""
 
 if $HAS_LOGIN; then

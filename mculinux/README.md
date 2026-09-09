@@ -27,8 +27,8 @@ make all
 
 | Component | Size | Description |
 |-----------|------|-------------|
-| `xipImage-7.2` | 1.8MB | Linux 7.2.x XIP kernel (ESP32-S3, musl, call0 ABI) |
-| `rootfs.erofs` | 1.2MB | EROFS rootfs with busybox (static, initramfs) |
+| `xipImage-7.2` | ~2.9MB | Linux 7.2.x XIP kernel (ESP32-S3, musl, WiFi + GPIO/I2C) |
+| `rootfs.erofs` | 1.2MB | EROFS rootfs with busybox (static, initramfs) + wificfg |
 | `bootloader.bin` | 18KB | ESP-IDF bootloader |
 | `partition-table.bin` | 3KB | Partition table |
 | `network_adapter.bin` | 571KB | WiFi network adapter firmware |

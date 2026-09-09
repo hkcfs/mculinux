@@ -138,6 +138,13 @@ jobs:
             ESP32-S3 Linux, built from source and QEMU boot-tested on all
             devices before release (kernel + busybox versions in versions.txt).
 
+            ### Highlights
+            - **WiFi**: lean `eth0` Ethernet over ESP-hosted IPC shmem,
+              IPv4 (udhcpc) + IPv6 (SLAAC); `wificfg <ssid> [pass]` stages
+              credentials via SIOCDEVPRIVATE
+            - **Buses**: ESP32-S3 GPIO driver (49 pins, chardev) + I2C-GPIO
+              (`/dev/i2c-0`)
+
             ### Supported Devices
             - **r8n8**: 8MB PSRAM + 8MB Flash (768KB /data)
             - **r8n16**: 8MB PSRAM + 16MB Flash (8.75MB /data)
