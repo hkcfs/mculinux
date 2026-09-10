@@ -1,0 +1,6 @@
+# mculinux overlay appended to sdkconfig.trimmed at build time
+# (see build-bootloader.sh). INFO firmware logs for Part B bringup:
+# the command handlers (INIT/scan/connect) log at INFO level.
+CONFIG_LOG_DEFAULT_LEVEL_ERROR=n
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_MAXIMUM_LEVEL=3

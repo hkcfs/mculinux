@@ -3,15 +3,15 @@ From: MCUlinux <hkcfs@example.com>
 Date: Tue, 9 Sep 2026 00:00:00 +0000
 Subject: [PATCH 9/9] net: add ESP32-S3 WiFi over shared memory (lean Ethernet)
 
-Binds the wifi@1 child of esp,esp32-ipc (IPC client slot 1) as a plain
-Ethernet netdev. Frames cross cores in esp-hosted payload format through
-the IPC queues; Core 0 (ESP-IDF network_adapter) owns WPA/auth and the
-radio. Credentials stage via SIOCDEVPRIVATE (wificfg) for a future
-firmware connect command.
+ Binds the wifi@1 child of esp,esp32-ipc (IPC client slot 1) as a plain
+ Ethernet netdev. Frames cross cores in esp-hosted payload format through
+ the IPC queues; Core 0 (ESP-IDF network_adapter) owns WPA/auth and the
+ radio. Control path speaks the firmware command protocol (init/scan/
+ connect via SIOCDEVPRIVATE, wificfg front-end).
 
 --- a/drivers/net/ethernet/Kconfig
 +++ b/drivers/net/ethernet/Kconfig
-@@ -190,4 +190,15 @@
+@@ -190,4 +190,16 @@
  source "drivers/net/ethernet/xilinx/Kconfig"
  source "drivers/net/ethernet/xircom/Kconfig"
  
@@ -22,9 +22,10 @@ firmware connect command.
 +	  Plain-Ethernet netdev bound to the wifi@1 child of esp,esp32-ipc
 +	  (IPC client slot 1). Frames cross cores in esp-hosted payload
 +	  format through the IPC queues; Core 0 (ESP-IDF network_adapter)
-+	  owns WPA/auth and the radio. Credentials are staged from Linux
-+	  via SIOCDEVPRIVATE (see wificfg) for a future firmware
-+	  connect command; today the firmware uses its own config.
++	  owns WPA/auth and the radio. Credentials and scan/connect are
++	  driven from Linux via SIOCDEVPRIVATE ioctls (see wificfg);
++	  secured connect needs the mculinux firmware passphrase
++	  extension (patches/esp-hosted/).
 +
  endif # ETHERNET
 --- a/drivers/net/ethernet/Makefile
@@ -36,7 +37,7 @@ firmware connect command.
 +obj-$(CONFIG_ESP32_WIFI_SHMEM) += esp32-wifi-shmem.o
 --- /dev/null
 +++ b/drivers/net/ethernet/esp32-wifi-shmem.c
-@@ -0,0 +1,630 @@
+@@ -0,0 +1,951 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Espressif ESP32-S3 WiFi over shared memory (lean Ethernet netdev).
@@ -48,6 +49,10 @@ firmware connect command.
 + *
 + * Split-core model: Core 0 (ESP-IDF network_adapter) owns WPA/auth and the
 + * radio; Linux sees link-layer Ethernet. No supplicant, no cfg80211 here.
++ * Control path speaks the firmware's native command protocol
++ * (COMMAND_REQUEST init/scan/connect; COMMAND_RESPONSE + EVENTs back):
++ * wificfg drives scan (SSID/RSSI/channel/auth table) and connect.
++ * Secured connect needs the mculinux firmware passphrase extension.
 + *
 + * Buffer model: TX buffers are Linux-kmalloc'd and dcache-flushed before
 + * handoff (firmware invalidates on receive). RX buffers are
@@ -71,6 +76,7 @@ firmware connect command.
 +#include <linux/io.h>
 +#include <linux/jiffies.h>
 +#include <linux/list.h>
++#include <linux/minmax.h>
 +#include <linux/mod_devicetable.h>
 +#include <linux/module.h>
 +#include <linux/mutex.h>
@@ -92,19 +98,35 @@ firmware connect command.
 +#define ESP_HDR_LEN		12
 +#define ESP_IF_TYPE_STA		0
 +#define ESP_PKT_TYPE_DATA	0
-+#define ESP_PKT_TYPE_CTRL	1	/* Part B control frames (scan/connect) */
++#define ESP_PKT_CMD_REQ		1	/* == PACKET_TYPE_COMMAND_REQUEST */
++#define ESP_PKT_CMD_RESP	2	/* == PACKET_TYPE_COMMAND_RESPONSE */
++#define ESP_PKT_EVENT		3	/* == PACKET_TYPE_EVENT */
 +#define ESP_MAX_FRAME		1600
 +
-+/* Part B firmware contract: CTRL payloads sit after the 12-byte header.
-+ * SCAN_REQ  {u8 cmd=1, u8 seq}: firmware scans, answers SCAN_RESP.
-+ * SCAN_RESP {u8 cmd=1, u8 seq, u8 count, u8 reserved,
-+ *            count x {u8 ssid_len, u8 ssid[32], s8 rssi, u8 ch, u8 auth}}.
-+ * Responses with a stale seq are ignored. Unknown CTRL cmds are dropped.
++/* Firmware command protocol (network_adapter, esp-hosted NG widget).
++ * Host -> FW: COMMAND_REQUEST carrying command structs below; FW
++ * dispatches to its process_* handlers (init/scan/connect already
++ * exist in firmware). FW -> host on slot 1: COMMAND_RESPONSE with a
++ * command_header, or EVENTs (scan results, link status). No seq echo:
++ * one control transaction at a time (scan_lock), matched by cmd_code.
++ * Secured connect needs the mculinux firmware passphrase extension
++ * (patches/esp-hosted/); legacy firmware ignores the appended bytes
++ * and falls back to its own configured passphrase.
 + */
-+#define ESP_CTRL_SCAN_REQ	1
-+#define ESP_CTRL_SCAN_RESP	1
++#define ESP_CMD_INIT_IF		1	/* CMD_INIT_INTERFACE */
++#define ESP_CMD_GET_MAC		3	/* CMD_GET_MAC */
++#define ESP_CMD_SCAN		4	/* CMD_SCAN_REQUEST */
++#define ESP_CMD_CONNECT		5	/* CMD_STA_CONNECT */
++
++#define ESP_RESP_SUCCESS	2	/* CMD_RESPONSE_SUCCESS */
++
++#define ESP_EVT_SCAN_RESULT	1	/* EVENT_SCAN_RESULT */
++#define ESP_EVT_STA_CONNECT	2
++#define ESP_EVT_STA_DISCONNECT	3
++
 +#define ESP32_WIFI_SCAN_MAX	32
 +#define ESP32_WIFI_SCAN_TIMEOUT	(8 * HZ)
++#define ESP32_WIFI_CMD_TIMEOUT	(5 * HZ)
 +
 +/* Firmware DRAM heap window (internal SRAM). RX pointers outside are dropped. */
 +#define FW_DRAM_BEGIN		0x3fc80000u
@@ -137,6 +159,8 @@ firmware connect command.
 +	s8 rssi;
 +	u8 channel;
 +	u8 auth;	/* 0 open, 1 WEP, 2 WPA, 3 WPA2, 4 WPA3, 255 unknown */
++	u8 bssid[6];
++	u8 pad[2];
 +};
 +
 +struct esp32_wifi_scan {
@@ -145,16 +169,38 @@ firmware connect command.
 +	struct esp32_wifi_net nets[ESP32_WIFI_SCAN_MAX];
 +};
 +
-+struct esp32_wifi_scan_req {
-+	u8 cmd;
-+	u8 seq;
++struct esp_cmd_header {
++	u8 cmd_code;
++	u8 cmd_status;
++	__le16 len;
++	__le16 seq;
++	u8 r1, r2;
 +} __packed;
 +
-+struct esp32_wifi_scan_resp {
-+	u8 cmd;
-+	u8 seq;
-+	u8 count;
-+	u8 reserved;
++struct esp_fw_scan_req {
++	struct esp_cmd_header h;
++	u8 bssid[6];
++	__le16 duration;
++	char ssid[33];
++	u8 channel;
++	u8 pad[2];
++} __packed;
++
++struct esp_fw_connect_req {
++	struct esp_cmd_header h;
++	u8 bssid[6];
++	__le16 assoc_flags;
++	char ssid[33];
++	u8 channel;
++	u8 is_open;
++	u8 assoc_ie_len;
++	char passphrase[65];	/* mculinux: NUL-padded PSK; legacy fw ignores */
++} __packed;
++
++struct esp_event_header {
++	u8 code;
++	u8 status;
++	__le16 len;
 +} __packed;
 +
 +struct esp32_wifi_tx {
@@ -171,13 +217,19 @@ firmware connect command.
 +	struct list_head tx_pending;
 +	struct net_device_stats stats;
 +	struct esp32_wifi_cfg creds;
-+	struct mutex scan_lock;	/* one scan ioctl at a time */
-+	struct completion scan_done;
++	struct mutex scan_lock;	/* one control ioctl at a time */
++	struct completion scan_done;	/* scan results complete */
++	struct completion cmd_done;	/* command response arrived */
++	bool inited;		/* CMD_INIT_IF accepted by firmware */
++	bool cmd_waiting;
++	u8 cmd_code;
++	u8 cmd_status;
++	u8 resp_buf[16];	/* last command response payload (capped) */
++	u8 resp_len;
 +	bool scanning;
-+	u8 scan_seq;
 +	u32 scan_count;
 +	struct esp32_wifi_net scan_nets[ESP32_WIFI_SCAN_MAX];
-+	struct esp32_wifi_tx *scan_req;	/* in tx_pending until reaped/freed */
++	struct esp32_wifi_tx *scan_req;	/* in-flight control frame */
 +	bool dead;
 +};
 +
@@ -211,8 +263,10 @@ firmware connect command.
 +	spin_unlock_irqrestore(&priv->tx_lock, flags);
 +}
 +
-+static void esp32_wifi_scan_rx(struct esp32_wifi *priv, void __iomem *map,
-+			       u16 offset, u16 len);
++static void esp32_wifi_cmd_rx(struct esp32_wifi *priv, void __iomem *map,
++			      u16 offset, u16 len);
++static void esp32_wifi_event_rx(struct esp32_wifi *priv, void __iomem *map,
++				u16 offset, u16 len);
 +
 +/* Firmware -> Linux path. Runs in the IPC thread (process context). */
 +static int esp32_wifi_rx(void *p, void *data)
@@ -260,8 +314,13 @@ firmware connect command.
 +		priv->stats.rx_dropped++;
 +		return 1;
 +	}
-+	if (hdr.packet_type == ESP_PKT_TYPE_CTRL) {
-+		esp32_wifi_scan_rx(priv, map, offset, len);
++	if (hdr.packet_type == ESP_PKT_CMD_RESP) {
++		esp32_wifi_cmd_rx(priv, map, offset, len);
++		iounmap(map);
++		return 1;
++	}
++	if (hdr.packet_type == ESP_PKT_EVENT) {
++		esp32_wifi_event_rx(priv, map, offset, len);
 +		iounmap(map);
 +		return 1;
 +	}
@@ -399,51 +458,286 @@ firmware connect command.
 +	return eth_mac_addr(dev, addr);
 +}
 +
-+/* Firmware -> Linux scan results. Runs in the IPC thread. */
-+static void esp32_wifi_scan_rx(struct esp32_wifi *priv, void __iomem *map,
-+			       u16 offset, u16 len)
++/* Pull SSID + auth out of an 802.11 beacon/probe-response frame. */
++static u8 esp32_wifi_ssid_from_frame(const u8 *frame, u16 frame_len,
++				     u8 *ssid, u8 *auth)
 +{
-+	struct esp32_wifi_scan_resp rhdr;
-+	unsigned long flags;
-+	u32 n;
++	u16 pos = 24 + 12;	/* mgmt header + beacon fixed params */
++	u8 found = 0, privacy = 0, slen = 0;
 +
-+	if (len < sizeof(rhdr))
-+		return;
-+	memcpy_fromio(&rhdr, map + offset, sizeof(rhdr));
-+	if (rhdr.cmd != ESP_CTRL_SCAN_RESP)
-+		return;
-+	spin_lock_irqsave(&priv->tx_lock, flags);
-+	if (!priv->scanning || rhdr.seq != priv->scan_seq) {
-+		spin_unlock_irqrestore(&priv->tx_lock, flags);
-+		return;
++	*auth = 0;
++	if (frame_len < pos + 2)
++		return 0;
++	privacy = (frame[24 + 10] & 0x10) != 0;
++	while (pos + 2 <= frame_len) {
++		u8 id = frame[pos], elen = frame[pos + 1];
++		const u8 *e;
++		u16 pcnt, acnt, i;
++
++		if (pos + 2 + elen > frame_len)
++			break;
++		e = frame + pos + 2;
++		if (id == 0 && elen <= 32 && !slen) {
++			memcpy(ssid, e, elen);
++			slen = elen;
++		} else if (id == 48 && elen >= 8) {
++			found = 3;	/* RSN: WPA2 unless SAE AKM appears */
++			pcnt = e[6] | (e[7] << 8);
++			e += 8 + 4 * pcnt;
++			if (e + 2 <= frame + pos + 2 + elen) {
++				acnt = e[0] | (e[1] << 8);
++				e += 2;
++				for (i = 0; i < acnt &&
++				     e + 4 <= frame + pos + 2 + elen;
++				     i++, e += 4)
++					if (!memcmp(e, "\x00\x0f\xac\x08", 4))
++						found = 4;
++			}
++		} else if (id == 221 && elen >= 4 &&
++			   !memcmp(e, "\x00\x50\xf2\x01", 4) && !found) {
++			found = 2;
++		}
++		pos += 2 + elen;
 +	}
-+	n = rhdr.count;
-+	if (n > ESP32_WIFI_SCAN_MAX)
-+		n = ESP32_WIFI_SCAN_MAX;
-+	if (sizeof(rhdr) + n * sizeof(struct esp32_wifi_net) > len) {
-+		spin_unlock_irqrestore(&priv->tx_lock, flags);
-+		return;
-+	}
-+	memcpy_fromio(priv->scan_nets, map + offset + sizeof(rhdr),
-+		      n * sizeof(struct esp32_wifi_net));
-+	priv->scan_count = n;
-+	priv->scanning = false;
-+	spin_unlock_irqrestore(&priv->tx_lock, flags);
-+	complete(&priv->scan_done);
++	*auth = found ? found : (privacy ? 1 : 0);
++	return slen;
 +}
 +
-+/* wificfg scan: ask Core 0 (Part B firmware) for visible networks. */
++/* Firmware -> Linux command responses. Runs in the IPC thread. */
++static void esp32_wifi_cmd_rx(struct esp32_wifi *priv, void __iomem *map,
++			      u16 offset, u16 len)
++{
++	struct esp_cmd_header ch;
++	unsigned long flags;
++
++	if (len < sizeof(ch))
++		return;
++	memcpy_fromio(&ch, map + offset, sizeof(ch));
++	spin_lock_irqsave(&priv->tx_lock, flags);
++	if (priv->cmd_waiting && ch.cmd_code == priv->cmd_code) {
++		priv->cmd_status = ch.cmd_status;
++		priv->resp_len = min(len, (u16)sizeof(priv->resp_buf));
++		memcpy_fromio(priv->resp_buf, map + offset, priv->resp_len);
++		priv->cmd_waiting = false;
++		spin_unlock_irqrestore(&priv->tx_lock, flags);
++		complete(&priv->cmd_done);
++	} else {
++		spin_unlock_irqrestore(&priv->tx_lock, flags);
++	}
++}
++
++/* One EVENT_SCAN_RESULT frame -> result slot. Runs in the IPC thread. */
++static void esp32_wifi_scan_result_rx(struct esp32_wifi *priv,
++				      void __iomem *map, u16 offset, u16 len)
++{
++	struct {
++		struct esp_event_header h;
++		u8 bssid[6];
++		u8 frame_type, channel;
++		__le32 rssi;
++		__le64 tsf;
++		__le16 frame_len;
++		u8 pad[2];
++	} e;
++	u8 frame[256], ssid[32], auth, slen;
++	unsigned long flags;
++	u32 i;
++	u16 flen, avail, take;
++
++	if (len < 28)
++		return;
++	memcpy_fromio(&e, map + offset, 28);
++	if (e.h.code != ESP_EVT_SCAN_RESULT)
++		return;
++	flen = le16_to_cpu(e.frame_len);
++	avail = len - 28;
++	take = flen;
++	if (take > avail)
++		take = avail;
++	if (take > sizeof(frame))
++		take = sizeof(frame);
++	if (take)
++		memcpy_fromio(frame, map + offset + 28, take);
++	slen = esp32_wifi_ssid_from_frame(frame, take, ssid, &auth);
++	spin_lock_irqsave(&priv->tx_lock, flags);
++	if (!priv->scanning) {
++		spin_unlock_irqrestore(&priv->tx_lock, flags);
++		return;
++	}
++	for (i = 0; i < priv->scan_count; i++)
++		if (!memcmp(priv->scan_nets[i].bssid, e.bssid, 6))
++			break;
++	if (i == priv->scan_count && priv->scan_count < ESP32_WIFI_SCAN_MAX) {
++		struct esp32_wifi_net *n = &priv->scan_nets[priv->scan_count++];
++		memcpy(n->bssid, e.bssid, 6);
++		memcpy(n->ssid, ssid, slen);
++		n->ssid_len = slen;
++		n->rssi = (s8)(s32)le32_to_cpu(e.rssi);
++		n->channel = e.channel;
++		n->auth = auth;
++	}
++	spin_unlock_irqrestore(&priv->tx_lock, flags);
++}
++
++/* Firmware -> Linux events (scan results, link status). IPC thread. */
++static void esp32_wifi_event_rx(struct esp32_wifi *priv, void __iomem *map,
++				u16 offset, u16 len)
++{
++	struct esp_event_header eh;
++	unsigned long flags;
++
++	if (len < sizeof(eh))
++		return;
++	memcpy_fromio(&eh, map + offset, sizeof(eh));
++	if (eh.code == ESP_EVT_SCAN_RESULT) {
++		esp32_wifi_scan_result_rx(priv, map, offset, len);
++	} else if (eh.code == ESP_EVT_STA_CONNECT) {
++		netdev_info(priv->dev, "firmware: station connected (status %u)\n",
++			    eh.status);
++	} else if (eh.code == ESP_EVT_STA_DISCONNECT) {
++		netdev_info(priv->dev, "firmware: station disconnected (status %u)\n",
++			    eh.status);
++	} else if (eh.code == 0 && len == sizeof(eh)) {
++		/* Scan-done marker (empty event from firmware). */
++		spin_lock_irqsave(&priv->tx_lock, flags);
++		if (priv->scanning) {
++			priv->scanning = false;
++			spin_unlock_irqrestore(&priv->tx_lock, flags);
++			complete(&priv->scan_done);
++		} else {
++			spin_unlock_irqrestore(&priv->tx_lock, flags);
++		}
++	}
++}
++
++/* Send one control frame; tracks it for reap/timeout cleanup. */
++static int esp32_wifi_cmd_tx(struct esp32_wifi *priv, const void *pl,
++			     u16 pl_len)
++{
++	struct esp_ipc_wifi_hdr *hdr;
++	struct esp32_wifi_tx *e;
++	u8 *buf;
++	u32 tag;
++	unsigned long flags;
++	int ret;
++
++	buf = kmalloc(ESP_HDR_LEN + pl_len, GFP_KERNEL);
++	if (!buf)
++		return -ENOMEM;
++	e = kmalloc(sizeof(*e), GFP_KERNEL);
++	if (!e) {
++		kfree(buf);
++		return -ENOMEM;
++	}
++	memcpy(buf + ESP_HDR_LEN, pl, pl_len);
++	hdr = (struct esp_ipc_wifi_hdr *)buf;
++	hdr->if_type_num = (0 << 4) | ESP_IF_TYPE_STA;
++	hdr->flags = 0;
++	hdr->packet_type = ESP_PKT_CMD_REQ;
++	hdr->reserved1 = 0;
++	hdr->len = cpu_to_le16(pl_len);
++	hdr->offset = cpu_to_le16(ESP_HDR_LEN);
++	hdr->reserved2 = 0;
++	hdr->checksum = 0;
++	hdr->checksum = cpu_to_le16(esp_checksum(buf, ESP_HDR_LEN + pl_len));
++	__flush_dcache_range((unsigned long)buf,
++			     (unsigned long)buf + ESP_HDR_LEN + pl_len);
++	ret = esp32_ipc_tx(priv->ipc, priv->slot, (void *)__pa(buf), &tag);
++	spin_lock_irqsave(&priv->tx_lock, flags);
++	if (ret) {
++		priv->stats.tx_errors++;
++		spin_unlock_irqrestore(&priv->tx_lock, flags);
++		kfree(e);
++		kfree(buf);
++		return -EIO;
++	}
++	e->tag = tag;
++	e->buf = buf;
++	list_add_tail(&e->list, &priv->tx_pending);
++	priv->scan_req = e;
++	spin_unlock_irqrestore(&priv->tx_lock, flags);
++	return 0;
++}
++
++/* Drop the tracked control frame (reaped already? no-op). */
++static void esp32_wifi_cmd_unlink(struct esp32_wifi *priv)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&priv->tx_lock, flags);
++	if (priv->scan_req) {
++		list_del(&priv->scan_req->list);
++		kfree(priv->scan_req->buf);
++		kfree(priv->scan_req);
++		priv->scan_req = NULL;
++	}
++	spin_unlock_irqrestore(&priv->tx_lock, flags);
++}
++
++/* One COMMAND_REQUEST round trip. Caller holds scan_lock. */
++static int esp32_wifi_cmd(struct esp32_wifi *priv, u8 cmd_code,
++			  const void *pl, u16 pl_len)
++{
++	unsigned long flags, left;
++	int status;
++
++	spin_lock_irqsave(&priv->tx_lock, flags);
++	priv->cmd_waiting = true;
++	priv->cmd_code = cmd_code;
++	priv->cmd_status = 0xff;
++	spin_unlock_irqrestore(&priv->tx_lock, flags);
++	init_completion(&priv->cmd_done);
++	status = esp32_wifi_cmd_tx(priv, pl, pl_len);
++	if (status)
++		goto out;
++	left = wait_for_completion_timeout(&priv->cmd_done,
++					   ESP32_WIFI_CMD_TIMEOUT);
++	spin_lock_irqsave(&priv->tx_lock, flags);
++	status = priv->cmd_status;
++	spin_unlock_irqrestore(&priv->tx_lock, flags);
++	if (!left)
++		return -ETIMEDOUT;
++	return (status == ESP_RESP_SUCCESS) ? 0 : -EIO;
++out:
++	spin_lock_irqsave(&priv->tx_lock, flags);
++	priv->cmd_waiting = false;
++	spin_unlock_irqrestore(&priv->tx_lock, flags);
++	return status;
++}
++
++/* Lazily bring firmware wifi up (idempotent in firmware). */
++static int esp32_wifi_ensure_inited(struct esp32_wifi *priv)
++{
++	struct esp_cmd_header h;
++	unsigned long flags;
++	bool need;
++	int ret;
++
++	spin_lock_irqsave(&priv->tx_lock, flags);
++	need = !priv->inited;
++	spin_unlock_irqrestore(&priv->tx_lock, flags);
++	if (!need)
++		return 0;
++	memset(&h, 0, sizeof(h));
++	h.cmd_code = ESP_CMD_INIT_IF;
++	ret = esp32_wifi_cmd(priv, ESP_CMD_INIT_IF, &h, sizeof(h));
++	esp32_wifi_cmd_unlink(priv);
++	if (!ret) {
++		spin_lock_irqsave(&priv->tx_lock, flags);
++		priv->inited = true;
++		spin_unlock_irqrestore(&priv->tx_lock, flags);
++	}
++	return ret;
++}
++
++/* wificfg scan: broadcast scan via firmware, collect result events. */
 +static int esp32_wifi_scan(struct net_device *dev, void __user *data)
 +{
 +	struct esp32_wifi *priv = netdev_priv(dev);
 +	struct esp32_wifi_scan __user *up = data;
-+	struct esp32_wifi_scan_req *req;
-+	struct esp32_wifi_tx *e;
-+	struct esp_ipc_wifi_hdr *hdr;
-+	u8 *buf;
-+	u32 tag, max, count;
++	struct esp_fw_scan_req req;
++	u32 max, count;
 +	unsigned long flags, left;
-+	u8 seq;
 +	int ret;
 +
 +	if (copy_from_user(&max, &up->max, sizeof(max)))
@@ -452,88 +746,111 @@ firmware connect command.
 +		return -EINVAL;
 +	if (!mutex_trylock(&priv->scan_lock))
 +		return -EBUSY;
-+
-+	buf = kmalloc(ESP_HDR_LEN + sizeof(*req), GFP_KERNEL);
-+	if (!buf) {
-+		mutex_unlock(&priv->scan_lock);
-+		return -ENOMEM;
-+	}
-+	e = kmalloc(sizeof(*e), GFP_KERNEL);
-+	if (!e) {
-+		kfree(buf);
-+		mutex_unlock(&priv->scan_lock);
-+		return -ENOMEM;
-+	}
++	ret = esp32_wifi_ensure_inited(priv);
++	if (ret)
++		goto out;
++	memset(&req, 0, sizeof(req));
++	req.h.cmd_code = ESP_CMD_SCAN;
 +	spin_lock_irqsave(&priv->tx_lock, flags);
-+	priv->scan_seq++;
-+	seq = priv->scan_seq;
 +	priv->scanning = true;
 +	priv->scan_count = 0;
 +	spin_unlock_irqrestore(&priv->tx_lock, flags);
 +	init_completion(&priv->scan_done);
-+
-+	req = (struct esp32_wifi_scan_req *)(buf + ESP_HDR_LEN);
-+	req->cmd = ESP_CTRL_SCAN_REQ;
-+	req->seq = seq;
-+	hdr = (struct esp_ipc_wifi_hdr *)buf;
-+	hdr->if_type_num = (0 << 4) | ESP_IF_TYPE_STA;
-+	hdr->flags = 0;
-+	hdr->packet_type = ESP_PKT_TYPE_CTRL;
-+	hdr->reserved1 = 0;
-+	hdr->len = cpu_to_le16(sizeof(*req));
-+	hdr->offset = cpu_to_le16(ESP_HDR_LEN);
-+	hdr->reserved2 = 0;
-+	hdr->checksum = 0;
-+	hdr->checksum = cpu_to_le16(esp_checksum(buf, ESP_HDR_LEN + sizeof(*req)));
-+	__flush_dcache_range((unsigned long)buf,
-+			     (unsigned long)buf + ESP_HDR_LEN + sizeof(*req));
-+
-+	ret = esp32_ipc_tx(priv->ipc, priv->slot, (void *)__pa(buf), &tag);
-+	spin_lock_irqsave(&priv->tx_lock, flags);
++	ret = esp32_wifi_cmd(priv, ESP_CMD_SCAN, &req, sizeof(req));
++	esp32_wifi_cmd_unlink(priv);
 +	if (ret) {
-+		priv->stats.tx_errors++;
++		spin_lock_irqsave(&priv->tx_lock, flags);
 +		priv->scanning = false;
 +		spin_unlock_irqrestore(&priv->tx_lock, flags);
-+		kfree(e);
-+		kfree(buf);
-+		mutex_unlock(&priv->scan_lock);
-+		return -EIO;
++		goto out;
 +	}
-+	e->tag = tag;
-+	e->buf = buf;
-+	list_add_tail(&e->list, &priv->tx_pending);
-+	priv->scan_req = e;
-+	spin_unlock_irqrestore(&priv->tx_lock, flags);
-+	mutex_unlock(&priv->scan_lock);
-+
 +	left = wait_for_completion_timeout(&priv->scan_done,
 +					   ESP32_WIFI_SCAN_TIMEOUT);
-+	mutex_lock(&priv->scan_lock);
 +	spin_lock_irqsave(&priv->tx_lock, flags);
-+	if (priv->scan_req) {
-+		list_del(&priv->scan_req->list);
-+		kfree(priv->scan_req->buf);
-+		kfree(priv->scan_req);
-+		priv->scan_req = NULL;
-+	}
 +	priv->scanning = false;
 +	count = priv->scan_count;
 +	if (count > max)
 +		count = max;
 +	spin_unlock_irqrestore(&priv->tx_lock, flags);
-+	if (!left) {
-+		mutex_unlock(&priv->scan_lock);
-+		netdev_info(dev, "scan: firmware did not answer (needs Part B scan command)\n");
-+		return -ETIMEDOUT;
++	if (!left && !count) {
++		netdev_info(dev, "scan: no results (firmware silent or no radio)\n");
++		ret = -ETIMEDOUT;
++		goto out;
 +	}
 +	if (copy_to_user(&up->count, &count, sizeof(count)) ||
 +	    (count && copy_to_user((void __user *)up->nets, priv->scan_nets,
 +				   count * sizeof(struct esp32_wifi_net)))) {
-+		mutex_unlock(&priv->scan_lock);
++		ret = -EFAULT;
++		goto out;
++	}
++	ret = 0;
++out:
++	mutex_unlock(&priv->scan_lock);
++	return ret;
++}
++
++/* wificfg <ssid> [pass]: join that network via firmware. */
++static int esp32_wifi_connect(struct net_device *dev, void __user *data)
++{
++	struct esp32_wifi *priv = netdev_priv(dev);
++	struct esp32_wifi_cfg cfg;
++	struct esp_fw_connect_req req;
++	int ret;
++
++	if (copy_from_user(&cfg, data, sizeof(cfg)))
 +		return -EFAULT;
++	if (cfg.ssid_len == 0 || cfg.ssid_len > 32 || cfg.pass_len > 64)
++		return -EINVAL;
++	if (!mutex_trylock(&priv->scan_lock))
++		return -EBUSY;
++	ret = esp32_wifi_ensure_inited(priv);
++	if (ret)
++		goto out;
++	memset(&req, 0, sizeof(req));
++	req.h.cmd_code = ESP_CMD_CONNECT;
++	memcpy(req.ssid, cfg.ssid, cfg.ssid_len);
++	req.channel = 0;	/* auto: join on any channel */
++	req.is_open = (cfg.pass_len == 0);
++	memcpy(req.passphrase, cfg.pass, cfg.pass_len);
++	ret = esp32_wifi_cmd(priv, ESP_CMD_CONNECT, &req, sizeof(req));
++	esp32_wifi_cmd_unlink(priv);
++	if (!ret)
++		netdev_info(dev, "connect request accepted for SSID '%.*s'\n",
++			    cfg.ssid_len, cfg.ssid);
++out:
++	mutex_unlock(&priv->scan_lock);
++	return ret;
++}
++
++/* wificfg mac: read the firmware STA MAC (no radio or INIT needed). */
++static int esp32_wifi_get_mac(struct net_device *dev, void __user *data)
++{
++	struct esp32_wifi *priv = netdev_priv(dev);
++	struct esp_cmd_header h;
++	unsigned long flags;
++	u8 mac[6];
++	int ret;
++
++	if (!mutex_trylock(&priv->scan_lock))
++		return -EBUSY;
++	memset(&h, 0, sizeof(h));
++	h.cmd_code = ESP_CMD_GET_MAC;
++	ret = esp32_wifi_cmd(priv, ESP_CMD_GET_MAC, &h, sizeof(h));
++	esp32_wifi_cmd_unlink(priv);
++	if (!ret) {
++		spin_lock_irqsave(&priv->tx_lock, flags);
++		if (priv->resp_len < 14) {
++			spin_unlock_irqrestore(&priv->tx_lock, flags);
++			mutex_unlock(&priv->scan_lock);
++			return -EIO;
++		}
++		memcpy(mac, priv->resp_buf + 8, 6);
++		spin_unlock_irqrestore(&priv->tx_lock, flags);
++		if (copy_to_user(data, mac, sizeof(mac)))
++			ret = -EFAULT;
 +	}
 +	mutex_unlock(&priv->scan_lock);
-+	return 0;
++	return ret;
 +}
 +
 +static int esp32_wifi_siocdevprivate(struct net_device *dev,
@@ -543,10 +860,15 @@ firmware connect command.
 +	struct esp32_wifi *priv = netdev_priv(dev);
 +	struct esp32_wifi_cfg cfg;
 +
-+	if (cmd != SIOCDEVPRIVATE && cmd != SIOCDEVPRIVATE + 1)
++	if (cmd != SIOCDEVPRIVATE && cmd != SIOCDEVPRIVATE + 1 &&
++	    cmd != SIOCDEVPRIVATE + 2 && cmd != SIOCDEVPRIVATE + 3)
 +		return -EOPNOTSUPP;
 +	if (cmd == SIOCDEVPRIVATE + 1)
 +		return esp32_wifi_scan(dev, data);
++	if (cmd == SIOCDEVPRIVATE + 2)
++		return esp32_wifi_connect(dev, data);
++	if (cmd == SIOCDEVPRIVATE + 3)
++		return esp32_wifi_get_mac(dev, data);
 +	if (copy_from_user(&cfg, data, sizeof(cfg)))
 +		return -EFAULT;
 +	if (cfg.ssid_len == 0 || cfg.ssid_len > sizeof(cfg.ssid) ||

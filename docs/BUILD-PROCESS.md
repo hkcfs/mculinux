@@ -195,6 +195,7 @@ tools/prebuilt/binaries/
 
 **Driver:** `patches/linux-esp32/0009-esp32-wifi-shmem.patch` (`drivers/net/ethernet/esp32-wifi-shmem.c`)
 **Control:** `rootfs/utils/wificfg.c` → `/sbin/wificfg`
+**Firmware:** `patches/esp-hosted/0001-sta-connect-passphrase.patch` + `sdkconfig.mculinux`
 
 Split-core model: Core 0 (ESP-IDF `network_adapter`) owns WPA/auth and the
 radio; Linux sees a plain Ethernet NIC (`eth0`) bound to the `wifi@1`
@@ -202,20 +203,37 @@ IPC-shmem child (client slot 1). Frames cross cores in esp-hosted payload
 format; TX buffers are dcache-flushed, RX pointers are validated
 (firmware-DRAM window only) and read via uncached ioremap.
 
-- No supplicant/iwd/cfg80211 on Linux. `udhcpc` (in busybox) for IPv4,
+- No supplicant/iwd/cfg80211 on Linux. `udhcpc`/`udhcpc6` for IPv4/IPv6,
   kernel SLAAC for IPv6.
-- `wificfg [if] <ssid> [pass]` stages credentials via SIOCDEVPRIVATE
-  (logged SSID in dmesg, passphrase never logged). Today the firmware
-  uses its own config — staged creds take effect with a future firmware
-  that implements an IPC connect command (Part B).
-- `wificfg scan [if]` asks Core 0 for visible networks via
-  SIOCDEVPRIVATE+1 (Part B firmware contract, documented in 0009:
-  CTRL SCAN_REQ {cmd, seq} → SCAN_RESP {cmd, seq, count, nets[]}).
-  Against the frozen firmware it times out cleanly after ~8s
-  (`-ETIMEDOUT`, no hang, no leak: the request is unlinked from the TX
-  pending list under lock). Prints SSID/RSSI/channel/auth table.
-- QEMU proof: registration + MAC, `ifconfig up`, DHCP DISCOVERs on the
-  wire (TX counters), ioctl round-trip. No radio in QEMU by design.
+- Control path speaks the firmware's **native command protocol**
+  (`COMMAND_REQUEST` init/scan/connect; `COMMAND_RESPONSE` + `EVENT`s
+  back on slot 1 — the same handlers the NG host uses):
+  - `wificfg mac` — firmware STA MAC, no radio or INIT needed. This is
+    the QEMU hardware-independence check: it proves the full
+    host→firmware→host round trip.
+  - `wificfg scan` — broadcast scan via firmware; results arrive as
+    `EVENT_SCAN_RESULT`s (SSID parsed from beacon IEs, auth from
+    RSN/WPA IEs + privacy bit), done-marker or 8s timeout ends it.
+  - `wificfg <ssid> [pass]` — stages creds (SSID logged, passphrase
+    never) then sends `CMD_STA_CONNECT` (channel auto, BSSID any).
+    Open networks join with stock firmware; secured join needs the
+    mculinux passphrase extension (`passphrase[65]` appended to
+    `cmd_sta_connect` — legacy firmware ignores the tail bytes and
+    falls back to its own configured passphrase).
+  - Driver serializes control ioctls (one transaction at a time),
+    matches responses by cmd_code, unlinks timed-out frames under lock
+    (no leak, no hang: every wait is bounded 5–8s).
+- Firmware build: `scripts/build-bootloader.sh` (era-pinned IDF v5.1.4
+  Docker + checkout's esp-idf submodule — never mix with the image's
+  `/opt/esp/idf`), applies `patches/esp-hosted/`, overlay
+  `sdkconfig.mculinux` (INFO logs for bringup). Output
+  `network_adapter.bin` ships in `tools/prebuilt/binaries/`.
+- QEMU proof (no radio there): `wificfg mac` returns a full round trip
+  (`Get MAC command` in firmware log → MAC on Linux console, zero
+  errors); INIT/SCAN/CONNECT dispatch visibly (`INIT Interface command`
+  in firmware log) but `esp_wifi_start` needs a real radio, so scan
+  results and association can only complete on hardware. RX data path
+  opens once firmware reports `station connected` (logged).
 
 ## Step 6: image
 

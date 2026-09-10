@@ -1,0 +1,37 @@
+From: MCUlinux <hkcfs@example.com>
+Subject: [PATCH] mculinux: host-supplied PSK for STA connect
+
+Extend struct cmd_sta_connect with an appended NUL-padded passphrase
+(65 bytes). Legacy senders omit it and keep the old behavior
+(DUMMY_PASSPHRASE / own config): the handler only uses the field
+when the payload is long enough and non-empty, so the extension is
+backward compatible on the wire.
+
+--- a/network_adapter/main/cmd.c
++++ b/network_adapter/main/cmd.c
+@@ -1309,7 +1309,14 @@ int process_sta_connect(uint8_t if_type, uint8_t *payload, uint16_t payload_len
+ 	memcpy(wifi_config.sta.ssid, cmd_connect->ssid, MAX_SSID_LEN);
+ 	if (!cmd_connect->is_auth_open) {
+ 		ESP_LOGI(TAG, "Attempting secured connection");
+-		memcpy(wifi_config.sta.password, DUMMY_PASSPHRASE, sizeof(DUMMY_PASSPHRASE));
++		if (payload_len >= sizeof(struct cmd_sta_connect) &&
++		    cmd_connect->passphrase[0]) {
++			/* mculinux: host-supplied PSK (absent in legacy senders) */
++			memcpy(wifi_config.sta.password, cmd_connect->passphrase,
++			       sizeof(wifi_config.sta.password));
++		} else {
++			memcpy(wifi_config.sta.password, DUMMY_PASSPHRASE, sizeof(DUMMY_PASSPHRASE));
++		}
+ 	} else {
+ 		ESP_LOGI(TAG, "Attempting open connection");
+ 	}
+--- a/network_adapter/main/include/adapter.h
++++ b/network_adapter/main/include/adapter.h
+@@ -196,6 +196,8 @@ struct cmd_sta_connect {
+ 	uint8_t    channel;
+ 	uint8_t    is_auth_open;
+ 	uint8_t    assoc_ie_len;
++	/* mculinux: host PSK, NUL-padded (absent in legacy senders) */
++	char       passphrase[65];
+ 	uint8_t    assoc_ie[];
+ } __packed;

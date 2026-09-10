@@ -10,9 +10,10 @@
  * "scan" asks Core 0 for visible networks (Part B firmware). Without
  * it, the driver times out after ~8s and reports so.
  *
- * Sends SSID/passphrase via SIOCDEVPRIVATE. The driver stores them and
- * logs receipt (dmesg); they take effect once the Core-0 firmware grows
- * an IPC connect command (Part B). Today the firmware uses its own config.
+ * Sends SSID/passphrase via SIOCDEVPRIVATE (staged in the driver,
+ * SSID logged, passphrase never logged) then asks firmware to join
+ * via SIOCDEVPRIVATE+2. Open networks join with stock firmware;
+ * secured join needs the mculinux firmware passphrase extension.
  */
 #include <errno.h>
 #include <stdio.h>
@@ -36,6 +37,8 @@ struct esp32_wifi_net {
 	signed char rssi;
 	unsigned char channel;
 	unsigned char auth;	/* 0 open, 1 WEP, 2 WPA, 3 WPA2, 4 WPA3 */
+	unsigned char bssid[6];
+	unsigned char pad[2];
 };
 
 struct esp32_wifi_scan {
@@ -71,6 +74,7 @@ static void usage(const char *prog)
 {
 	fprintf(stderr, "usage: %s [ifname] <ssid> [passphrase]\n", prog);
 	fprintf(stderr, "       %s scan [ifname]\n", prog);
+	fprintf(stderr, "       %s mac [ifname]\n", prog);
 	fprintf(stderr, "  2 args: ssid + passphrase (ifname defaults to eth0)\n");
 	fprintf(stderr, "  2 args, first names an interface: open network on it\n");
 	fprintf(stderr, "  3 args: ifname + ssid + passphrase\n");
@@ -121,11 +125,22 @@ static int wifi_scan(const char *ifname)
 		free(s);
 		return 1;
 	}
-	printf("%-32s %4s %3s %s\n", "SSID", "RSSI", "CH", "AUTH");
-	for (i = 0; i < (int)s->count; i++)
-		printf("%-32.*s %4d %3u %s\n", s->nets[i].ssid_len,
-		       s->nets[i].ssid, (int)s->nets[i].rssi,
-		       s->nets[i].channel, auth_name(s->nets[i].auth));
+	printf("%-32s %4s %3s %-17s %s\n", "SSID", "RSSI", "CH", "BSSID", "AUTH");
+	for (i = 0; i < (int)s->count; i++) {
+		unsigned char *b = s->nets[i].bssid;
+		if (s->nets[i].ssid_len)
+			printf("%-32.*s %4d %3u %02x:%02x:%02x:%02x:%02x:%02x %s\n",
+			       s->nets[i].ssid_len, s->nets[i].ssid,
+			       (int)s->nets[i].rssi, s->nets[i].channel,
+			       b[0], b[1], b[2], b[3], b[4], b[5],
+			       auth_name(s->nets[i].auth));
+		else
+			printf("%-32s %4d %3u %02x:%02x:%02x:%02x:%02x:%02x %s\n",
+			       "<hidden>", (int)s->nets[i].rssi,
+			       s->nets[i].channel,
+			       b[0], b[1], b[2], b[3], b[4], b[5],
+			       auth_name(s->nets[i].auth));
+	}
 	free(s);
 	return 0;
 }
@@ -146,6 +161,38 @@ int main(int argc, char **argv)
 		if (argc == 3)
 			ifname = argv[2];
 		return wifi_scan(ifname);
+	}
+	if (argc >= 2 && strcmp(argv[1], "mac") == 0) {
+		unsigned char mac[6];
+		struct ifreq mifr;
+		int mfd, mret;
+
+		if (argc > 3) {
+			usage(argv[0]);
+			return 2;
+		}
+		if (argc == 3)
+			ifname = argv[2];
+		mfd = socket(AF_INET, SOCK_DGRAM, 0);
+		if (mfd < 0) {
+			perror("socket");
+			return 1;
+		}
+		memset(&mifr, 0, sizeof(mifr));
+		strncpy(mifr.ifr_name, ifname, IFNAMSIZ - 1);
+		mifr.ifr_data = (void *)mac;
+		mret = ioctl(mfd, SIOCDEVPRIVATE + 3, &mifr);
+		close(mfd);
+		if (mret < 0) {
+			if (errno == ETIMEDOUT)
+				fprintf(stderr, "mac: firmware did not answer\n");
+			else
+				perror("ioctl(SIOCDEVPRIVATE+3)");
+			return 1;
+		}
+		printf("%s firmware MAC: %02x:%02x:%02x:%02x:%02x:%02x\n", ifname,
+		       mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+		return 0;
 	}
 	if (argc == 3) {
 		/* "ssid pass" vs "if ssid" (open network): if argv[1]
@@ -193,6 +240,20 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	printf("credentials staged for '%s' on %s (dmesg to confirm)\n", ssid, ifname);
+
+	/* Join the network via firmware (open works stock; secured
+	 * needs the mculinux firmware passphrase extension). */
+	ret = ioctl(fd, SIOCDEVPRIVATE + 2, &ifr);
+	if (ret < 0) {
+		if (errno == ETIMEDOUT)
+			fprintf(stderr, "connect: firmware did not answer\n");
+		else
+			perror("ioctl(connect)");
+		fprintf(stderr, "connect failed, credentials stay staged\n");
+		close(fd);
+		return 1;
+	}
+	printf("connect request accepted for '%s' on %s (watch dmesg)\n", ssid, ifname);
 	close(fd);
 	return 0;
 }
