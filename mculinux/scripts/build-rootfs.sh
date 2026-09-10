@@ -29,7 +29,7 @@ fi
 BIN_APPLETS="arch base32 base64 cat chattr chgrp chmod chown cp cpio date dd df
     dmesg dnsdomainname dumpkmap echo egrep false fdflush fgrep getopt grep gunzip
     gzip hostname hush kill link linux32 linux64 ln login ls lsattr mkdir mknod
-    mktemp more mount mountpoint mt mv netstat nice nuke pidof ping pipe_progress
+    mktemp more mount mountpoint mt mv netstat nice nuke pidof ping ping6 pipe_progress
     printenv ps pwd resume rm rmdir run-parts sed setarch setpriv setserial sh
     sleep stty su sync tar touch true umount uname usleep vi watch zcat"
 SBIN_APPLETS="arp blkid devmem fdisk freeramdisk fsck fstrim getty halt hdparm
@@ -37,7 +37,7 @@ SBIN_APPLETS="arp blkid devmem fdisk freeramdisk fsck fstrim getty halt hdparm
     iptunnel klogd loadkmap losetup lsmod makedevs mdev mkdosfs mke2fs mkswap
     modprobe mount nameif pivot_root poweroff reboot rmmod route run-init runlevel
     setconsole start-stop-daemon sulogin swapoff swapon switch_root sysctl syslogd
-    tc udhcpc uevent vconfig watchdog"
+    tc udhcpc udhcpc6 uevent vconfig watchdog"
 
 echo "=== Assembling rootfs (busybox: $BUSYBOX_BIN) ==="
 rm -rf "$STAGING"

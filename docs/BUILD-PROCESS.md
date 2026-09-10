@@ -208,6 +208,12 @@ format; TX buffers are dcache-flushed, RX pointers are validated
   (logged SSID in dmesg, passphrase never logged). Today the firmware
   uses its own config — staged creds take effect with a future firmware
   that implements an IPC connect command (Part B).
+- `wificfg scan [if]` asks Core 0 for visible networks via
+  SIOCDEVPRIVATE+1 (Part B firmware contract, documented in 0009:
+  CTRL SCAN_REQ {cmd, seq} → SCAN_RESP {cmd, seq, count, nets[]}).
+  Against the frozen firmware it times out cleanly after ~8s
+  (`-ETIMEDOUT`, no hang, no leak: the request is unlinked from the TX
+  pending list under lock). Prints SSID/RSSI/channel/auth table.
 - QEMU proof: registration + MAC, `ifconfig up`, DHCP DISCOVERs on the
   wire (TX counters), ioctl round-trip. No radio in QEMU by design.
 

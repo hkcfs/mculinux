@@ -1,12 +1,22 @@
 /* wificfg: stage WiFi credentials into the esp32-wifi-shmem driver.
  *
  * Usage: wificfg [ifname] <ssid> [passphrase]
+ *        wificfg scan [ifname]
+ *
+ * With 2 args the first is the SSID unless it names a real interface
+ * (then it's an open network on that interface). An SSID that matches
+ * an interface name needs the 3-arg form.
+ *
+ * "scan" asks Core 0 for visible networks (Part B firmware). Without
+ * it, the driver times out after ~8s and reports so.
  *
  * Sends SSID/passphrase via SIOCDEVPRIVATE. The driver stores them and
  * logs receipt (dmesg); they take effect once the Core-0 firmware grows
  * an IPC connect command (Part B). Today the firmware uses its own config.
  */
+#include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -16,6 +26,23 @@
 #ifndef SIOCDEVPRIVATE
 #define SIOCDEVPRIVATE 0x89F0
 #endif
+#define SIOCDEVSCAN (SIOCDEVPRIVATE + 1)
+
+#define SCAN_MAX 32
+
+struct esp32_wifi_net {
+	unsigned char ssid[32];
+	unsigned char ssid_len;
+	signed char rssi;
+	unsigned char channel;
+	unsigned char auth;	/* 0 open, 1 WEP, 2 WPA, 3 WPA2, 4 WPA3 */
+};
+
+struct esp32_wifi_scan {
+	unsigned int max;
+	unsigned int count;
+	struct esp32_wifi_net nets[SCAN_MAX];
+};
 
 struct esp32_wifi_cfg {
 	unsigned char ssid[32];
@@ -23,6 +50,85 @@ struct esp32_wifi_cfg {
 	unsigned char pass[64];
 	unsigned char pass_len;
 };
+
+/* if_nametoindex needs /sys (absent: no SYSFS) — probe via SIOCGIFINDEX. */
+static int if_exists(const char *name)
+{
+	struct ifreq ifr;
+	int fd, ok;
+
+	fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (fd < 0)
+		return 0;
+	memset(&ifr, 0, sizeof(ifr));
+	strncpy(ifr.ifr_name, name, IFNAMSIZ - 1);
+	ok = ioctl(fd, SIOCGIFINDEX, &ifr) == 0;
+	close(fd);
+	return ok;
+}
+
+static void usage(const char *prog)
+{
+	fprintf(stderr, "usage: %s [ifname] <ssid> [passphrase]\n", prog);
+	fprintf(stderr, "       %s scan [ifname]\n", prog);
+	fprintf(stderr, "  2 args: ssid + passphrase (ifname defaults to eth0)\n");
+	fprintf(stderr, "  2 args, first names an interface: open network on it\n");
+	fprintf(stderr, "  3 args: ifname + ssid + passphrase\n");
+	fprintf(stderr, "  (SSID matching an interface name needs the 3-arg form)\n");
+}
+
+static const char *auth_name(unsigned char a)
+{
+	switch (a) {
+	case 0: return "open";
+	case 1: return "WEP";
+	case 2: return "WPA";
+	case 3: return "WPA2";
+	case 4: return "WPA3";
+	default: return "unknown";
+	}
+}
+
+static int wifi_scan(const char *ifname)
+{
+	struct esp32_wifi_scan *s;
+	struct ifreq ifr;
+	int fd, ret, i;
+
+	s = calloc(1, sizeof(*s));
+	if (!s) {
+		fprintf(stderr, "out of memory\n");
+		return 1;
+	}
+	s->max = SCAN_MAX;
+	fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (fd < 0) {
+		perror("socket");
+		free(s);
+		return 1;
+	}
+	memset(&ifr, 0, sizeof(ifr));
+	strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
+	ifr.ifr_data = (void *)s;
+
+	ret = ioctl(fd, SIOCDEVSCAN, &ifr);
+	close(fd);
+	if (ret < 0) {
+		if (errno == ETIMEDOUT)
+			fprintf(stderr, "scan: firmware did not answer (Part B scan command needed)\n");
+		else
+			perror("ioctl(SIOCDEVPRIVATE+1)");
+		free(s);
+		return 1;
+	}
+	printf("%-32s %4s %3s %s\n", "SSID", "RSSI", "CH", "AUTH");
+	for (i = 0; i < (int)s->count; i++)
+		printf("%-32.*s %4d %3u %s\n", s->nets[i].ssid_len,
+		       s->nets[i].ssid, (int)s->nets[i].rssi,
+		       s->nets[i].channel, auth_name(s->nets[i].auth));
+	free(s);
+	return 0;
+}
 
 int main(int argc, char **argv)
 {
@@ -32,15 +138,32 @@ int main(int argc, char **argv)
 	const char *ssid, *pass = "";
 	int fd, ret;
 
+	if (argc >= 2 && strcmp(argv[1], "scan") == 0) {
+		if (argc > 3) {
+			usage(argv[0]);
+			return 2;
+		}
+		if (argc == 3)
+			ifname = argv[2];
+		return wifi_scan(ifname);
+	}
 	if (argc == 3) {
-		ssid = argv[1];
-		pass = argv[2];
+		/* "ssid pass" vs "if ssid" (open network): if argv[1]
+		 * names a real interface, it's the latter. */
+		if (if_exists(argv[1])) {
+			ifname = argv[1];
+			ssid = argv[2];
+			pass = "";
+		} else {
+			ssid = argv[1];
+			pass = argv[2];
+		}
 	} else if (argc == 4) {
 		ifname = argv[1];
 		ssid = argv[2];
 		pass = argv[3];
 	} else {
-		fprintf(stderr, "usage: %s [ifname] <ssid> [passphrase]\n", argv[0]);
+		usage(argv[0]);
 		return 2;
 	}
 	if (strlen(ssid) < 1 || strlen(ssid) > 32 || strlen(pass) > 64) {

@@ -36,7 +36,7 @@ firmware connect command.
 +obj-$(CONFIG_ESP32_WIFI_SHMEM) += esp32-wifi-shmem.o
 --- /dev/null
 +++ b/drivers/net/ethernet/esp32-wifi-shmem.c
-@@ -0,0 +1,417 @@
+@@ -0,0 +1,630 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Espressif ESP32-S3 WiFi over shared memory (lean Ethernet netdev).
@@ -64,13 +64,16 @@ firmware connect command.
 +
 +#include <linux/bitops.h>
 +#include <linux/byteorder/generic.h>
++#include <linux/completion.h>
 +#include <linux/errno.h>
 +#include <linux/etherdevice.h>
 +#include <linux/if_ether.h>
 +#include <linux/io.h>
++#include <linux/jiffies.h>
 +#include <linux/list.h>
 +#include <linux/mod_devicetable.h>
 +#include <linux/module.h>
++#include <linux/mutex.h>
 +#include <linux/netdevice.h>
 +#include <linux/of.h>
 +#include <linux/of_device.h>
@@ -89,7 +92,19 @@ firmware connect command.
 +#define ESP_HDR_LEN		12
 +#define ESP_IF_TYPE_STA		0
 +#define ESP_PKT_TYPE_DATA	0
++#define ESP_PKT_TYPE_CTRL	1	/* Part B control frames (scan/connect) */
 +#define ESP_MAX_FRAME		1600
++
++/* Part B firmware contract: CTRL payloads sit after the 12-byte header.
++ * SCAN_REQ  {u8 cmd=1, u8 seq}: firmware scans, answers SCAN_RESP.
++ * SCAN_RESP {u8 cmd=1, u8 seq, u8 count, u8 reserved,
++ *            count x {u8 ssid_len, u8 ssid[32], s8 rssi, u8 ch, u8 auth}}.
++ * Responses with a stale seq are ignored. Unknown CTRL cmds are dropped.
++ */
++#define ESP_CTRL_SCAN_REQ	1
++#define ESP_CTRL_SCAN_RESP	1
++#define ESP32_WIFI_SCAN_MAX	32
++#define ESP32_WIFI_SCAN_TIMEOUT	(8 * HZ)
 +
 +/* Firmware DRAM heap window (internal SRAM). RX pointers outside are dropped. */
 +#define FW_DRAM_BEGIN		0x3fc80000u
@@ -116,6 +131,32 @@ firmware connect command.
 +	u8 pass_len;
 +};
 +
++struct esp32_wifi_net {
++	u8 ssid[32];
++	u8 ssid_len;
++	s8 rssi;
++	u8 channel;
++	u8 auth;	/* 0 open, 1 WEP, 2 WPA, 3 WPA2, 4 WPA3, 255 unknown */
++};
++
++struct esp32_wifi_scan {
++	u32 max;	/* in: capacity of nets */
++	u32 count;	/* out: networks found */
++	struct esp32_wifi_net nets[ESP32_WIFI_SCAN_MAX];
++};
++
++struct esp32_wifi_scan_req {
++	u8 cmd;
++	u8 seq;
++} __packed;
++
++struct esp32_wifi_scan_resp {
++	u8 cmd;
++	u8 seq;
++	u8 count;
++	u8 reserved;
++} __packed;
++
 +struct esp32_wifi_tx {
 +	struct list_head list;
 +	u32 tag;
@@ -126,10 +167,17 @@ firmware connect command.
 +	struct net_device *dev;
 +	void *ipc;
 +	u32 slot;
-+	spinlock_t tx_lock;	/* pending list + tx stats */
++	spinlock_t tx_lock;	/* pending list + tx stats + scan state */
 +	struct list_head tx_pending;
 +	struct net_device_stats stats;
 +	struct esp32_wifi_cfg creds;
++	struct mutex scan_lock;	/* one scan ioctl at a time */
++	struct completion scan_done;
++	bool scanning;
++	u8 scan_seq;
++	u32 scan_count;
++	struct esp32_wifi_net scan_nets[ESP32_WIFI_SCAN_MAX];
++	struct esp32_wifi_tx *scan_req;	/* in tx_pending until reaped/freed */
 +	bool dead;
 +};
 +
@@ -149,8 +197,11 @@ firmware connect command.
 +
 +	spin_lock_irqsave(&priv->tx_lock, flags);
 +	list_for_each_entry_safe(e, tmp, &priv->tx_pending, list) {
-+		if ((s32)(done - e->tag) > 0) {
++		/* 'done' is the last tag completed by firmware: reap it too. */
++		if ((s32)(done - e->tag) >= 0) {
 +			list_del(&e->list);
++			if (e == priv->scan_req)
++				priv->scan_req = NULL;
 +			kfree(e->buf);
 +			kfree(e);
 +		}
@@ -159,6 +210,9 @@ firmware connect command.
 +		netif_wake_queue(priv->dev);
 +	spin_unlock_irqrestore(&priv->tx_lock, flags);
 +}
++
++static void esp32_wifi_scan_rx(struct esp32_wifi *priv, void __iomem *map,
++			       u16 offset, u16 len);
 +
 +/* Firmware -> Linux path. Runs in the IPC thread (process context). */
 +static int esp32_wifi_rx(void *p, void *data)
@@ -192,14 +246,27 @@ firmware connect command.
 +
 +	len = le16_to_cpu(hdr.len);
 +	offset = le16_to_cpu(hdr.offset);
-+	if (hdr.packet_type != ESP_PKT_TYPE_DATA || offset != ESP_HDR_LEN ||
-+	    len > ESP_MAX_FRAME || len < ETH_HLEN) {
++	if (offset != ESP_HDR_LEN || len > ESP_MAX_FRAME) {
++		priv->stats.rx_dropped++;
++		return 1;
++	}
++	if (addr + offset + len > FW_DRAM_END) {
 +		priv->stats.rx_dropped++;
 +		return 1;
 +	}
 +
 +	map = ioremap(addr, offset + len);
 +	if (!map) {
++		priv->stats.rx_dropped++;
++		return 1;
++	}
++	if (hdr.packet_type == ESP_PKT_TYPE_CTRL) {
++		esp32_wifi_scan_rx(priv, map, offset, len);
++		iounmap(map);
++		return 1;
++	}
++	if (hdr.packet_type != ESP_PKT_TYPE_DATA || len < ETH_HLEN) {
++		iounmap(map);
 +		priv->stats.rx_dropped++;
 +		return 1;
 +	}
@@ -237,6 +304,7 @@ firmware connect command.
 +	struct esp32_wifi_tx *e;
 +	u8 *buf;
 +	u32 tag;
++	unsigned int len;
 +	int ret;
 +	unsigned long flags;
 +
@@ -245,8 +313,9 @@ firmware connect command.
 +		priv->stats.tx_dropped++;
 +		return NETDEV_TX_OK;
 +	}
++	len = skb->len;
 +
-+	buf = kmalloc(ESP_HDR_LEN + skb->len, GFP_ATOMIC);
++	buf = kmalloc(ESP_HDR_LEN + len, GFP_ATOMIC);
 +	if (!buf) {
 +		dev_kfree_skb(skb);
 +		priv->stats.tx_dropped++;
@@ -265,26 +334,28 @@ firmware connect command.
 +	hdr->flags = 0;
 +	hdr->packet_type = ESP_PKT_TYPE_DATA;
 +	hdr->reserved1 = 0;
-+	hdr->len = cpu_to_le16(skb->len);
++	hdr->len = cpu_to_le16(len);
 +	hdr->offset = cpu_to_le16(ESP_HDR_LEN);
 +	hdr->reserved2 = 0;
-+	skb_copy_from_linear_data(skb, buf + ESP_HDR_LEN, skb->len);
-+	hdr->checksum = cpu_to_le16(esp_checksum(buf, ESP_HDR_LEN + skb->len));
++	/* Checksum covers header+payload: zero our own field first. */
++	hdr->checksum = 0;
++	skb_copy_from_linear_data(skb, buf + ESP_HDR_LEN, len);
++	hdr->checksum = cpu_to_le16(esp_checksum(buf, ESP_HDR_LEN + len));
 +
 +	/* Make the buffer visible to Core 0 before handing over the pointer. */
 +	__flush_dcache_range((unsigned long)buf,
-+			     (unsigned long)buf + ESP_HDR_LEN + skb->len);
++			     (unsigned long)buf + ESP_HDR_LEN + len);
 +
 +	ret = esp32_ipc_tx(priv->ipc, priv->slot, (void *)__pa(buf), &tag);
 +	dev_kfree_skb(skb);
 +	if (ret) {
++		/* skb already freed: count the error, never return BUSY. */
 +		kfree(e);
 +		kfree(buf);
 +		spin_lock_irqsave(&priv->tx_lock, flags);
 +		priv->stats.tx_errors++;
 +		spin_unlock_irqrestore(&priv->tx_lock, flags);
-+		netif_stop_queue(dev);
-+		return NETDEV_TX_BUSY;
++		return NETDEV_TX_OK;
 +	}
 +
 +	e->tag = tag;
@@ -292,7 +363,7 @@ firmware connect command.
 +	spin_lock_irqsave(&priv->tx_lock, flags);
 +	list_add_tail(&e->list, &priv->tx_pending);
 +	priv->stats.tx_packets++;
-+	priv->stats.tx_bytes += skb->len;
++	priv->stats.tx_bytes += len;
 +	spin_unlock_irqrestore(&priv->tx_lock, flags);
 +	return NETDEV_TX_OK;
 +}
@@ -328,6 +399,143 @@ firmware connect command.
 +	return eth_mac_addr(dev, addr);
 +}
 +
++/* Firmware -> Linux scan results. Runs in the IPC thread. */
++static void esp32_wifi_scan_rx(struct esp32_wifi *priv, void __iomem *map,
++			       u16 offset, u16 len)
++{
++	struct esp32_wifi_scan_resp rhdr;
++	unsigned long flags;
++	u32 n;
++
++	if (len < sizeof(rhdr))
++		return;
++	memcpy_fromio(&rhdr, map + offset, sizeof(rhdr));
++	if (rhdr.cmd != ESP_CTRL_SCAN_RESP)
++		return;
++	spin_lock_irqsave(&priv->tx_lock, flags);
++	if (!priv->scanning || rhdr.seq != priv->scan_seq) {
++		spin_unlock_irqrestore(&priv->tx_lock, flags);
++		return;
++	}
++	n = rhdr.count;
++	if (n > ESP32_WIFI_SCAN_MAX)
++		n = ESP32_WIFI_SCAN_MAX;
++	if (sizeof(rhdr) + n * sizeof(struct esp32_wifi_net) > len) {
++		spin_unlock_irqrestore(&priv->tx_lock, flags);
++		return;
++	}
++	memcpy_fromio(priv->scan_nets, map + offset + sizeof(rhdr),
++		      n * sizeof(struct esp32_wifi_net));
++	priv->scan_count = n;
++	priv->scanning = false;
++	spin_unlock_irqrestore(&priv->tx_lock, flags);
++	complete(&priv->scan_done);
++}
++
++/* wificfg scan: ask Core 0 (Part B firmware) for visible networks. */
++static int esp32_wifi_scan(struct net_device *dev, void __user *data)
++{
++	struct esp32_wifi *priv = netdev_priv(dev);
++	struct esp32_wifi_scan __user *up = data;
++	struct esp32_wifi_scan_req *req;
++	struct esp32_wifi_tx *e;
++	struct esp_ipc_wifi_hdr *hdr;
++	u8 *buf;
++	u32 tag, max, count;
++	unsigned long flags, left;
++	u8 seq;
++	int ret;
++
++	if (copy_from_user(&max, &up->max, sizeof(max)))
++		return -EFAULT;
++	if (max == 0 || max > ESP32_WIFI_SCAN_MAX)
++		return -EINVAL;
++	if (!mutex_trylock(&priv->scan_lock))
++		return -EBUSY;
++
++	buf = kmalloc(ESP_HDR_LEN + sizeof(*req), GFP_KERNEL);
++	if (!buf) {
++		mutex_unlock(&priv->scan_lock);
++		return -ENOMEM;
++	}
++	e = kmalloc(sizeof(*e), GFP_KERNEL);
++	if (!e) {
++		kfree(buf);
++		mutex_unlock(&priv->scan_lock);
++		return -ENOMEM;
++	}
++	spin_lock_irqsave(&priv->tx_lock, flags);
++	priv->scan_seq++;
++	seq = priv->scan_seq;
++	priv->scanning = true;
++	priv->scan_count = 0;
++	spin_unlock_irqrestore(&priv->tx_lock, flags);
++	init_completion(&priv->scan_done);
++
++	req = (struct esp32_wifi_scan_req *)(buf + ESP_HDR_LEN);
++	req->cmd = ESP_CTRL_SCAN_REQ;
++	req->seq = seq;
++	hdr = (struct esp_ipc_wifi_hdr *)buf;
++	hdr->if_type_num = (0 << 4) | ESP_IF_TYPE_STA;
++	hdr->flags = 0;
++	hdr->packet_type = ESP_PKT_TYPE_CTRL;
++	hdr->reserved1 = 0;
++	hdr->len = cpu_to_le16(sizeof(*req));
++	hdr->offset = cpu_to_le16(ESP_HDR_LEN);
++	hdr->reserved2 = 0;
++	hdr->checksum = 0;
++	hdr->checksum = cpu_to_le16(esp_checksum(buf, ESP_HDR_LEN + sizeof(*req)));
++	__flush_dcache_range((unsigned long)buf,
++			     (unsigned long)buf + ESP_HDR_LEN + sizeof(*req));
++
++	ret = esp32_ipc_tx(priv->ipc, priv->slot, (void *)__pa(buf), &tag);
++	spin_lock_irqsave(&priv->tx_lock, flags);
++	if (ret) {
++		priv->stats.tx_errors++;
++		priv->scanning = false;
++		spin_unlock_irqrestore(&priv->tx_lock, flags);
++		kfree(e);
++		kfree(buf);
++		mutex_unlock(&priv->scan_lock);
++		return -EIO;
++	}
++	e->tag = tag;
++	e->buf = buf;
++	list_add_tail(&e->list, &priv->tx_pending);
++	priv->scan_req = e;
++	spin_unlock_irqrestore(&priv->tx_lock, flags);
++	mutex_unlock(&priv->scan_lock);
++
++	left = wait_for_completion_timeout(&priv->scan_done,
++					   ESP32_WIFI_SCAN_TIMEOUT);
++	mutex_lock(&priv->scan_lock);
++	spin_lock_irqsave(&priv->tx_lock, flags);
++	if (priv->scan_req) {
++		list_del(&priv->scan_req->list);
++		kfree(priv->scan_req->buf);
++		kfree(priv->scan_req);
++		priv->scan_req = NULL;
++	}
++	priv->scanning = false;
++	count = priv->scan_count;
++	if (count > max)
++		count = max;
++	spin_unlock_irqrestore(&priv->tx_lock, flags);
++	if (!left) {
++		mutex_unlock(&priv->scan_lock);
++		netdev_info(dev, "scan: firmware did not answer (needs Part B scan command)\n");
++		return -ETIMEDOUT;
++	}
++	if (copy_to_user(&up->count, &count, sizeof(count)) ||
++	    (count && copy_to_user((void __user *)up->nets, priv->scan_nets,
++				   count * sizeof(struct esp32_wifi_net)))) {
++		mutex_unlock(&priv->scan_lock);
++		return -EFAULT;
++	}
++	mutex_unlock(&priv->scan_lock);
++	return 0;
++}
++
 +static int esp32_wifi_siocdevprivate(struct net_device *dev,
 +					struct ifreq *ifr, void __user *data,
 +					int cmd)
@@ -335,8 +543,10 @@ firmware connect command.
 +	struct esp32_wifi *priv = netdev_priv(dev);
 +	struct esp32_wifi_cfg cfg;
 +
-+	if (cmd != SIOCDEVPRIVATE)
++	if (cmd != SIOCDEVPRIVATE && cmd != SIOCDEVPRIVATE + 1)
 +		return -EOPNOTSUPP;
++	if (cmd == SIOCDEVPRIVATE + 1)
++		return esp32_wifi_scan(dev, data);
 +	if (copy_from_user(&cfg, data, sizeof(cfg)))
 +		return -EFAULT;
 +	if (cfg.ssid_len == 0 || cfg.ssid_len > sizeof(cfg.ssid) ||
@@ -393,6 +603,7 @@ firmware connect command.
 +	priv->ipc = ipc;
 +	priv->slot = slot;
 +	spin_lock_init(&priv->tx_lock);
++	mutex_init(&priv->scan_lock);
 +	INIT_LIST_HEAD(&priv->tx_pending);
 +
 +	eth_hw_addr_random(dev);
@@ -426,6 +637,8 @@ firmware connect command.
 +	if (!priv)
 +		return;
 +	priv->dead = true;
++	/* Wake any in-flight scan so remove never strands wificfg. */
++	complete_all(&priv->scan_done);
 +	unregister_netdev(priv->dev);
 +	list_for_each_entry_safe(e, tmp, &priv->tx_pending, list) {
 +		list_del(&e->list);
