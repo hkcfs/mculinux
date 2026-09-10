@@ -21,7 +21,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # busybox is always latest-stable, resolved via git tags below).
 ARG TOOLCHAIN_URL=https://github.com/hkcfs/mculinux/releases/download/toolchain/xtensa-esp32s3-linux-muslfdpic.tar.xz
 ARG TOOLCHAIN_DIR=/opt/crosstool-ng/xtensa-esp32s3-linux-muslfdpic
-ARG QEMU_TARBALL_URL=https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20250228/qemu-xtensa-softmmu-esp_develop_9.2.2_20250228-x86_64-linux-gnu.tar.xz
+ARG QEMU_TARBALL_URL=https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20260417/qemu-xtensa-softmmu-esp_develop_9.2.2_20260417-x86_64-linux-gnu.tar.xz
 
 # Build dependencies (toolchain/kernel/busybox) + QEMU runtime libs.
 RUN apt-get update && apt-get -y install --no-install-recommends \

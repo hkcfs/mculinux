@@ -310,7 +310,9 @@ Boots the flash image in QEMU ESP32-S3 emulator and verifies a working system.
 
 ### QEMU location:
 ```
-tools/qemu/qemu/bin/qemu-system-xtensa   (ESP-IDF QEMU esp-develop-9.2.2)
+tools/qemu/qemu/bin/qemu-system-xtensa   (ESP-IDF QEMU esp-develop-9.2.2-20260417;
+  NOTE: the 20250228 tag's asset was re-rolled upstream and breaks octal
+  PSRAM init — always use 20260417 or newer verified bits)
 ```
 `$QEMU` env wins; both CI images pre-set it (`/opt/qemu/...`).
 

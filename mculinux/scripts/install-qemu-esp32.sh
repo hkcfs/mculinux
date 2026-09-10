@@ -9,8 +9,11 @@ MCULINUX_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_QEMU="$MCULINUX_DIR/tools/qemu/qemu/bin/qemu-system-xtensa"
 DEST_DIR="$MCULINUX_DIR/tools/qemu/esp-prebuilt"
 DEST_BIN="$DEST_DIR/bin/qemu-system-xtensa"
-# Espressif QEMU release with esp32s3 machine (xtensa-softmmu)
-TARBALL_URL="${QEMU_TARBALL_URL:-https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20250228/qemu-xtensa-softmmu-esp_develop_9.2.2_20250228-x86_64-linux-gnu.tar.xz}"
+# Espressif QEMU release with esp32s3 machine (xtensa-softmmu).
+# Pinned to esp-develop-9.2.2-20260417: the 20250228 tag's asset was
+# re-rolled upstream and breaks octal PSRAM init (v6.0 firmware aborts
+# in cpu_start); the 20260417 bits are verified working.
+TARBALL_URL="${QEMU_TARBALL_URL:-https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20260417/qemu-xtensa-softmmu-esp_develop_9.2.2_20260417-x86_64-linux-gnu.tar.xz}"
 
 if [ -x "$REPO_QEMU" ]; then
     echo "$REPO_QEMU"
