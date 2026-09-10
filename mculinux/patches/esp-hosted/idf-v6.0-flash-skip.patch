@@ -1,0 +1,52 @@
+# mculinux: single-CPU flash ops on IDF v6.0 (Core 1 runs Linux).
+# Applied in-container to /opt/esp/idf (see build-bootloader.sh).
+# v6.0's spi_flash rendezvous spins forever waiting for the other CPU,
+# which can never answer when it runs Linux instead of FreeRTOS. This
+# restores the old g_spi_flash_skip_ipc escape hatch under a new name.
+--- a/components/spi_flash/cache_utils.c
++++ b/components/spi_flash/cache_utils.c
+@@ -121,10 +121,15 @@
+ #endif // #if ( ( CONFIG_FREERTOS_SMP ) && ( !CONFIG_FREERTOS_UNICORE ) )
+ }
+
++/* mculinux: set by fork code around flash ops issued on Linux's behalf
++ * (erase/write via the IPC flash service). Core 1 runs Linux and can
++ * never take part in the rendezvous below. */
++int g_mculinux_skip_flash_ipc;
++
+ void IRAM_ATTR spi_flash_disable_interrupts_caches_and_other_cpu(void)
+ {
+     assert(esp_task_stack_is_sane_cache_disabled());
+
+     spi_flash_op_lock();
+
+     int cpuid = xPortGetCoreID();
+@@ -141,7 +147,7 @@
+         // PRO CPU. APP CPU is either in reset or spinning inside user_start_cpu1,
+         // which is in IRAM. So it is safe to disable cache for the other_cpuid after
+         // esp_intr_noniram_disable.
+         assert(other_cpuid == 1);
+-    } else {
++    } else if (!g_mculinux_skip_flash_ipc) {
+         bool ipc_call_was_send_to_other_cpu;
+         do {
+@@ -175,7 +180,17 @@
+         while (!s_flash_op_can_start) {
+             // Busy loop and wait for spi_flash_op_block_func to disable cache
+             // on the other CPU
+         }
+-    }
++    } else {
++        // mculinux: single-CPU flash op; suspend the scheduler locally
++        // only, mirroring the rendezvous path above.
++#if ( ( CONFIG_FREERTOS_SMP ) && ( !CONFIG_FREERTOS_UNICORE ) )
++        //Note: Scheduler suspension behavior changed in FreeRTOS SMP
++        vTaskPreemptionDisable(NULL);
++#else
++        // Disable scheduler on the current CPU
++        vTaskSuspendAll();
++#endif
++    }
+ 
+     // Kill interrupts that aren't located in IRAM
+     esp_intr_noniram_disable();

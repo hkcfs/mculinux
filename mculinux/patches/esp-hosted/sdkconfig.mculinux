@@ -4,3 +4,6 @@
 CONFIG_LOG_DEFAULT_LEVEL_ERROR=n
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 CONFIG_LOG_MAXIMUM_LEVEL=3
+# v6.0 renamed NONE->DEBUG via sdkconfig.rename (slow bootloader);
+# restore the fork's small/fast intent.
+CONFIG_BOOTLOADER_COMPILER_OPTIMIZATION_SIZE=y

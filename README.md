@@ -67,7 +67,7 @@ the rootfs assembles from `rootfs/` + latest stable busybox.
 | `make image DEVICE=r8n16` | Assemble flash image |
 | `make test DEVICE=r8n16` | QEMU boot test (kernel/tty/login/mounts) |
 | `make run` | Interactive QEMU with retry loop |
-| `make bootloader` | WiFi bootloader (idf:latest Docker, manual) |
+| `make bootloader` | WiFi firmware (IDF v6.0 Docker, manual) |
 | `make compress` | Compare filesystem compression |
 | `make latest` | Print latest stable kernel versions |
 | `make clean` | Clean output |

@@ -14,6 +14,11 @@ on:
       version:
         description: 'Release version (e.g. 1.0.0)'
         required: true
+      prerelease:
+        description: 'Mark as pre-release (for hardware validation builds)'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   build-all:
@@ -140,8 +145,9 @@ jobs:
 
             ### Highlights
             - **WiFi**: lean `eth0` Ethernet over ESP-hosted IPC shmem,
-              IPv4 (udhcpc) + IPv6 (SLAAC); `wificfg <ssid> [pass]` stages
-              credentials via SIOCDEVPRIVATE
+              IPv4 (udhcpc/udhcpc6) + IPv6 (SLAAC, ping6); `wificfg scan`
+              lists networks, `wificfg <ssid> [pass]` joins via firmware,
+              `wificfg mac` reads the firmware MAC
             - **Buses**: ESP32-S3 GPIO driver (49 pins, chardev) + I2C-GPIO
               (`/dev/i2c-0`)
 
@@ -164,7 +170,9 @@ jobs:
             images/flash_r8n16.zip
             images/flash_r16n16.zip
           draft: false
-          prerelease: false
+          # Dispatches may request a pre-release (hardware validation);
+          # tag pushes always cut final releases.
+          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

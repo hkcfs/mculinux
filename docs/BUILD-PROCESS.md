@@ -64,16 +64,19 @@ manual `make bootloader` rebuilds.
 ## Step 2: bootloader
 
 **Script:** `scripts/build-bootloader.sh [--trimmed]`
-**Container:** `espressif/idf:latest` (Docker, tracks IDF master)
-**Time:** ~5 min
+**Container:** `espressif/idf:v6.0` (Docker; `IDF_IMAGE_TAG` override)
+**Time:** ~15 min first build (IDF tools + full compile)
 
-Builds the WiFi firmware (`network_adapter.bin`) using ESP-IDF.
-`IDF_IMAGE_TAG=vX.Y` pins a release. Binaries are committed prebuilts;
-CI never rebuilds them.
+Builds the WiFi firmware (`network_adapter.bin`) using ESP-IDF v6.0
+(the image's IDF is authoritative; the checkout's v5.1-era esp-idf
+submodule is not used). Applies `patches/esp-hosted/` (firmware
+extensions + v6.0 compat shims), the `sdkconfig.mculinux` overlay, and
+an in-container IDF patch for single-CPU flash ops (Core 1 runs
+Linux). Binaries are committed prebuilts; CI never rebuilds them.
 
 ### What it does:
 
-1. Runs `espressif/idf:latest` Docker container with esp-hosted volume mounted
+1. Runs `espressif/idf:v6.0` Docker container with esp-hosted volume mounted
 2. Sets target to `esp32s3` via `idf.py set-target`
 3. Applies trimmed sdkconfig - removes Ethernet, USB-OTG, SPIFFS, FATFS, MQTT, WiFi Provisioning; reduces mbedTLS cert bundle from 200 to 3 certs
 4. Builds with `idf.py build`
@@ -223,7 +226,7 @@ format; TX buffers are dcache-flushed, RX pointers are validated
   - Driver serializes control ioctls (one transaction at a time),
     matches responses by cmd_code, unlinks timed-out frames under lock
     (no leak, no hang: every wait is bounded 5–8s).
-- Firmware build: `scripts/build-bootloader.sh` (era-pinned IDF v5.1.4
+- Firmware build: `scripts/build-bootloader.sh` (era-pinned IDF v6.0
   Docker + checkout's esp-idf submodule — never mix with the image's
   `/opt/esp/idf`), applies `patches/esp-hosted/`, overlay
   `sdkconfig.mculinux` (INFO logs for bringup). Output

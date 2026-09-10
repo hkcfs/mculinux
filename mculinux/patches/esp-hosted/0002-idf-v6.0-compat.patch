@@ -1,0 +1,178 @@
+From: MCUlinux <hkcfs@example.com>
+Subject: [PATCH] mculinux: IDF v6.0 compatibility shims
+
+v6.0 removed host-driven 802.11 auth/assoc internals, the
+bssid-taking esp_wifi_connect_internal, and the g_spi_flash_skip_ipc
+/ g_abort_on_ipc escape hatches. Our Linux uses firmware-side WPA
+(never CMD_STA_AUTH/ASSOC), steers connects via STA config, and
+replaces the flash skip with g_mculinux_skip_flash_ipc (see the
+idf-v6.0-flash-skip.patch against IDF itself). All shims are
+version-guarded: older IDFs build exactly as before.
+
+diff --git a/network_adapter/main/cmd.c b/network_adapter/main/cmd.c
+--- a/network_adapter/main/cmd.c
++++ b/network_adapter/main/cmd.c
+@@ -23,6 +23,7 @@
+ #include "cmd.h"
+ #include "adapter.h"
+ #include "endian.h"
++#include "esp_idf_version.h"
+ #include "esp_private/wifi.h"
+ #include "esp_wpa.h"
+ #include "esp_wifi.h"
+@@ -58,6 +59,22 @@
+ extern volatile uint8_t station_connected;
+ extern volatile uint8_t association_ongoing;
+ 
++#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
++/* v6.0 removed host-driven 802.11 auth/assoc internals. Our Linux does
++ * firmware-side WPA and never sends CMD_STA_AUTH/ASSOC; these stubs
++ * exist only to link, and fail loudly if ever reached. */
++static esp_err_t esp_wifi_issue_auth_internal(uint8_t status)
++{
++	ESP_LOGE(TAG, "issue_auth unsupported on IDF v6.0 (status %u)", status);
++	return ESP_FAIL;
++}
++static esp_err_t esp_wifi_issue_assoc_internal(uint8_t status)
++{
++	ESP_LOGE(TAG, "issue_assoc unsupported on IDF v6.0 (status %u)", status);
++	return ESP_FAIL;
++}
++#endif
++
+ volatile uint8_t sta_init_flag;
+ 
+ static struct wpa_funcs wpa_cb;
+@@ -125,7 +142,20 @@ int sta_connection(uint8_t *bssid)
+ 		return ESP_FAIL;
+ 	}
+ 	memcpy(ap_bssid, bssid, MAC_ADDR_LEN);
++#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
++	/* v6.0 dropped the bssid-taking internal: steer via STA config. */
++	{
++		wifi_config_t cfg = { 0 };
++		if (esp_wifi_get_config(WIFI_IF_STA, &cfg) == ESP_OK) {
++			memcpy(cfg.sta.bssid, bssid, MAC_ADDR_LEN);
++			cfg.sta.bssid_set = 1;
++			esp_wifi_set_config(WIFI_IF_STA, &cfg);
++		}
++		esp_wifi_connect_internal();
++	}
++#else
+ 	esp_wifi_connect_internal(ap_bssid);
++#endif
+ 
+ 	return ESP_OK;
+ }
+diff --git a/network_adapter/main/esp_wifi_driver.h b/network_adapter/main/esp_wifi_driver.h
+--- a/network_adapter/main/esp_wifi_driver.h
++++ b/network_adapter/main/esp_wifi_driver.h
+@@ -9,6 +9,7 @@
+ 
+ #include "esp_err.h"
+ #include "esp_wifi.h"
++#include "esp_idf_version.h"
+ 
+ #if CONFIG_NEWLIB_NANO_FORMAT
+ #define TASK_STACK_SIZE_ADD 0
+@@ -284,10 +285,18 @@ bool esp_wifi_is_btm_enabled_internal(uint8_t if_index);
+ esp_err_t esp_wifi_register_mgmt_frame_internal(uint32_t type, uint32_t subtype);
+ esp_err_t esp_wifi_send_mgmt_frm_internal(const wifi_mgmt_frm_req_t *req);
+ uint8_t esp_wifi_ap_get_prof_pairwise_cipher_internal(void);
++#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(6, 0, 0)
++/* v6.0 changed this to esp_wifi_action_tx_req(wifi_action_tx_req_t *req)
++ * (declared in its own headers now); unused by the fork in any case. */
+ esp_err_t esp_wifi_action_tx_req(uint8_t type, uint8_t channel,
+                                  uint32_t wait_time_ms, const wifi_action_tx_req_t *req);
++#endif
++#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(6, 0, 0)
++/* v6.0 changed this to esp_wifi_remain_on_channel(wifi_roc_req_t *req);
++ * unused by the fork in any case. */
+ esp_err_t esp_wifi_remain_on_channel(uint8_t ifx, uint8_t type, uint8_t channel,
+                                      uint32_t wait_time_ms, wifi_action_rx_cb_t rx_cb);
++#endif
+ bool esp_wifi_is_mbo_enabled_internal(uint8_t if_index);
+ void esp_wifi_get_pmf_config_internal(wifi_pmf_config_t *pmf_cfg, uint8_t ifx);
+ bool esp_wifi_is_ft_enabled_internal(uint8_t if_index);
+@@ -301,8 +310,14 @@ bool esp_wifi_ap_notify_node_sae_auth_done(uint8_t *mac);
+ bool esp_wifi_ap_is_sta_sae_reauth_node(uint8_t *mac);
+ uint8_t* esp_wifi_sta_get_sae_identifier_internal(void);
+ bool esp_wifi_eb_tx_status_success_internal(void *eb);
++#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
++/* v6.0 dropped the bssid-taking internal and the host-driven
++ * auth/assoc internals (see cmd.c shims). Decls match v6.0. */
++esp_err_t esp_wifi_connect_internal(void);
++#else
+ esp_err_t esp_wifi_connect_internal(const uint8_t *bssid);
+ esp_err_t esp_wifi_issue_auth_internal(uint8_t status);
+ esp_err_t esp_wifi_issue_assoc_internal(uint8_t status);
++#endif
+ 
+ #endif /* _ESP_WIFI_DRIVER_H_ */
+diff --git a/network_adapter/main/include/esp.h b/network_adapter/main/include/esp.h
+--- a/network_adapter/main/include/esp.h
++++ b/network_adapter/main/include/esp.h
+@@ -18,6 +18,17 @@
+ #define __ESP__H
+ 
+ #include "adapter.h"
++#include "esp_idf_version.h"
++
++#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
++/* v6.0 removed the ESP_IF_WIFI_* macros; the enum values are
++ * identical, so restore the names locally (both app_main.c and
++ * cmd.c use them). */
++#ifndef ESP_IF_WIFI_STA
++#define ESP_IF_WIFI_STA WIFI_IF_STA
++#define ESP_IF_WIFI_AP  WIFI_IF_AP
++#endif
++#endif
+ 
+ #define TASK_DEFAULT_STACK_SIZE	 4096
+ #define TASK_DEFAULT_PRIO        22
+diff --git a/network_adapter/main/linux_boot.c b/network_adapter/main/linux_boot.c
+--- a/network_adapter/main/linux_boot.c
++++ b/network_adapter/main/linux_boot.c
+@@ -86,8 +86,10 @@ static void map_flash_and_go(void)
+ 	printf("linux ptr = %p\n", linux);
+ 	printf("vectors ptr = %p\n", space_for_vectors);
+ 
+-	extern int g_abort_on_ipc;
+-	g_abort_on_ipc = 1;
++	/* mculinux: old IDF had g_abort_on_ipc (panic without stalling the
++	 * Linux CPU); v6.0 removed it. A firmware panic may now disturb
++	 * Linux too — but the system is dead either way (watchdog reboots).
++	 * Known gap, not a boot path concern. */
+ 
+ 	asm volatile ("mov a2, %1 ; jx %0" :: "r"(linux), "r"(tag) : "a2");
+ }
+diff --git a/network_adapter/main/linux_flash.c b/network_adapter/main/linux_flash.c
+--- a/network_adapter/main/linux_flash.c
++++ b/network_adapter/main/linux_flash.c
+@@ -36,7 +36,7 @@ struct esp32_ipc_flash_cmd {
+ 	uint32_t code;
+ };
+ 
+-extern int g_spi_flash_skip_ipc;
++extern int g_mculinux_skip_flash_ipc;
+ 
+ static void esp_flash_rx(void *p, void *data)
+ {
+@@ -51,7 +51,7 @@ static void esp_flash_rx(void *p, void *data)
+ 		while (cmd->remote_state != ESP32_IPC_FLASH_STATE_READY) {
+ 			asm volatile ("memw" ::: "memory");
+ 		}
+-		g_spi_flash_skip_ipc = 1;
++		g_mculinux_skip_flash_ipc = 1;
+ 		switch (cmd->code) {
+ 		case ESP_IPC_FLASH_CMD_ERASE:
+ 			ret = esp_flash_erase_region(NULL, cmd->addr, cmd->size);
+@@ -69,7 +69,7 @@ static void esp_flash_rx(void *p, void *data)
+ 			ret = ESP_FAIL;
+ 			break;
+ 		}
+-		g_spi_flash_skip_ipc = 0;
++		g_mculinux_skip_flash_ipc = 0;
+ 		cmd->result = (ret == ESP_OK) ? 0 : 1;
+ 		cmd->local_state = ESP32_IPC_FLASH_STATE_DONE;
+ 	}
