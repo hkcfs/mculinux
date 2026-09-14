@@ -108,7 +108,35 @@ jobs:
           echo "kver=$KVER" >> $GITHUB_OUTPUT
           echo "bver=$BVER" >> $GITHUB_OUTPUT
 
+      - name: Compute build fingerprint
+        id: fp
+        run: |
+          cd mculinux
+          # Fingerprint over every input that shapes the committed binaries:
+          # versions + patches + build scripts + rootfs sources. If it matches
+          # the committed fingerprint, a rebuild would only re-embed fresh
+          # timestamps, so skip instead of committing daily churn.
+          FP_NEW=$( {
+            cat patches/linux-esp32/*.patch patches/linux-esp32/fragment.config
+            cat patches/busybox-nommu/*
+            cat scripts/build-kernel.sh scripts/build-busybox-nommu.sh \
+                scripts/build-rootfs.sh scripts/build-etc-jffs2.sh
+            find rootfs -type f -exec sha256sum {} + | sort -k2
+            echo "kver=${{ steps.vers.outputs.kver }}"
+            echo "bver=${{ steps.vers.outputs.bver }}"
+          } | sha256sum | cut -d' ' -f1 )
+          echo "fp_new=$FP_NEW" >> $GITHUB_OUTPUT
+          FP_OLD="$(cat tools/prebuilt/binaries/.fingerprint 2>/dev/null || echo none)"
+          if [ "$FP_NEW" = "$FP_OLD" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Fingerprint unchanged ($FP_NEW), skipping rebuild"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "Fingerprint changed (old=$FP_OLD new=$FP_NEW), rebuilding"
+          fi
+
       - name: Build kernel (tinyconfig + fragment, strict patches)
+        if: ${{ steps.fp.outputs.skip != 'true' }}
         env:
           KERNEL_VERSION: ${{ steps.vers.outputs.kver }}
           XTENSA_CROSS: xtensa-esp32s3-linux-muslfdpic-
@@ -117,6 +145,7 @@ jobs:
           ./scripts/build-kernel.sh
 
       - name: Build busybox + rootfs (strict NOMMU patch)
+        if: ${{ steps.fp.outputs.skip != 'true' }}
         env:
           BUSYBOX_VERSION: ${{ steps.vers.outputs.bver }}
           XTENSA_CROSS: xtensa-esp32s3-linux-muslfdpic-
@@ -125,11 +154,13 @@ jobs:
           ./scripts/build-busybox-nommu.sh
 
       - name: Build etc.jffs2
+        if: ${{ steps.fp.outputs.skip != 'true' }}
         run: |
           cd mculinux
           ./scripts/build-etc-jffs2.sh
 
       - name: Assemble + test all devices
+        if: ${{ steps.fp.outputs.skip != 'true' }}
         run: |
           cd mculinux
           for device in r8n8 r8n16 r16n16; do
@@ -138,6 +169,7 @@ jobs:
           done
 
       - name: Upload kernel + rootfs + flashes
+        if: ${{ steps.fp.outputs.skip != 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: full-${{ steps.vers.outputs.kver }}-bb${{ steps.vers.outputs.bver }}
@@ -149,13 +181,16 @@ jobs:
           retention-days: 30
 
       - name: Commit fresh binaries back to main
+        if: ${{ steps.fp.outputs.skip != 'true' }}
         run: |
           cd "$GITHUB_WORKSPACE"
           git config user.name "mculinux-ci"
           git config user.email "mculinux-ci@users.noreply.github.com"
+          echo "${{ steps.fp.outputs.fp_new }}" > mculinux/tools/prebuilt/binaries/.fingerprint
           git add mculinux/tools/prebuilt/binaries/xipImage-* \
                   mculinux/tools/prebuilt/binaries/rootfs.erofs \
-                  mculinux/tools/prebuilt/binaries/etc.jffs2
+                  mculinux/tools/prebuilt/binaries/etc.jffs2 \
+                  mculinux/tools/prebuilt/binaries/.fingerprint
           git diff --cached --quiet && echo "Nothing changed, skipping commit" && exit 0
           git commit -m "full: kernel ${{ steps.vers.outputs.kver }} + busybox ${{ steps.vers.outputs.bver }} (automated)"
           git push origin HEAD:main
