@@ -2,7 +2,7 @@ name: Build & Test
 
 # Fast path (push/PR): assemble flash from committed prebuilts + QEMU
 # boot-test, all devices in parallel inside the slim tester image (~minutes).
-# Full path (nightly cron / dispatch): build the kernel from source inside
+# Full path (monthly cron / dispatch): build the kernel from source inside
 # the fat builder image, then assemble + test all devices.
 # Images: ghcr.io/<repo>/builder and .../tester (see docker.yml).
 
@@ -13,7 +13,7 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    - cron: '0 2 * * *'  # Nightly full build, 02:00 UTC
+    - cron: '0 2 1 * *'  # Monthly full build, 1st of month 02:00 UTC
 
 concurrency:
   # Per-event groups: a manual/nightly full run must not cancel an in-flight
