@@ -100,6 +100,7 @@ All documentation is in the [`docs/`](./docs/) folder:
 | [rootfs-filesystem-comparison.md](./docs/rootfs-filesystem-comparison.md) | Comparing EROFS, SquashFS, CramFS |
 | [GENERIC-KERNEL-TEST.md](./docs/GENERIC-KERNEL-TEST.md) | Testing mainline kernel (negative result) |
 | [ALPINE-PORT-RESEARCH.md](./docs/ALPINE-PORT-RESEARCH.md) | Alpine Linux port investigation |
+| [ESP32S3-CORES-RESEARCH.md](./docs/ESP32S3-CORES-RESEARCH.md) | Two-core split design, ULP-RISC-V coprocessor, SMP feasibility |
 | [BRINGUP-7.2.3.md](./docs/BRINGUP-7.2.3.md) | 7.2 port bringup notes (historical) |
 | [OPTIMIZATION-EXPERIMENTS.md](./docs/OPTIMIZATION-EXPERIMENTS.md) | Memory diet experiments E0-E9 |
 
