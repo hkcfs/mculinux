@@ -101,6 +101,7 @@ All documentation is in the [`docs/`](./docs/) folder:
 | [GENERIC-KERNEL-TEST.md](./docs/GENERIC-KERNEL-TEST.md) | Testing mainline kernel (negative result) |
 | [ALPINE-PORT-RESEARCH.md](./docs/ALPINE-PORT-RESEARCH.md) | Alpine Linux port investigation |
 | [ESP32S3-CORES-RESEARCH.md](./docs/ESP32S3-CORES-RESEARCH.md) | Two-core split design, ULP-RISC-V coprocessor, SMP feasibility |
+| [USB-WIFI-STATUS.md](./docs/USB-WIFI-STATUS.md) | What USB host and WiFi support actually do today, and what needs hardware |
 | [BRINGUP-7.2.3.md](./docs/BRINGUP-7.2.3.md) | 7.2 port bringup notes (historical) |
 | [OPTIMIZATION-EXPERIMENTS.md](./docs/OPTIMIZATION-EXPERIMENTS.md) | Memory diet experiments E0-E9 |
 
