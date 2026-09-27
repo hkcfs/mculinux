@@ -1355,7 +1355,7 @@ Subject: [PATCH] xtensa: ESP32-S3 variant headers + device trees
 +#endif /*_XTENSA_CORE_TIE_ASM_H*/
 --- /dev/null
 +++ b/arch/xtensa/boot/dts/esp32s3.dtsi
-@@ -0,0 +1,314 @@
+@@ -0,0 +1,323 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/dts-v1/;
 +
@@ -1608,8 +1608,17 @@ Subject: [PATCH] xtensa: ESP32-S3 variant headers + device trees
 +			interrupts = <38 13 0>; /* USB, external IRQ13, CPU0 */
 +			clocks = <&usb_clk>;
 +			clock-names = "otg";
-+			resets = <&reset 23>;
-+			reset-names = "dwc2";
++			/* No "resets" on purpose. The reset controller below is
++			 * declared "esp,esp32-reset" and no mainline driver binds
++			 * it, so devm_reset_control_get_optional() in dwc2's
++			 * lowlevel_hw_init() returns -EPROBE_DEFER and the probe
++			 * never retries. Measured: with "resets" present the probe
++			 * dies at -517 with no message. Other enabled nodes keep
++			 * their "resets" because their drivers never call the reset
++			 * API, so a missing provider is invisible there. The clock
++			 * gate above is the real enable, and dwc2_core_reset()
++			 * handles the block afterwards. A proper esp,esp32-reset
++			 * driver is the upstreamable fix, not this omission. */
 +
 +			g-rx-fifo-size = <64>;
 +			g-np-tx-fifo-size = <16>;
