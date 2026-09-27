@@ -2,7 +2,7 @@
 
 ## Background
 
-The 7.2.3 XIP kernel (`xipImage`) was **3,748,080 bytes** against the `linux` partition limit of **4,063,232 bytes** (~315 KB headroom), and static RAM (`.data`+`.bss`) was 238,314 bytes. Goal: maximize free ROM and RAM using compiler/linker optimization only — no features disabled (round 1). Removing kallsyms symbol debug was explicitly approved afterwards (round 2).
+The 7.2.3 XIP kernel (`xipImage`) was **3,748,080 bytes** against the `linux` partition limit of **4,063,232 bytes** (~315 KB headroom), and static RAM (`.data`+`.bss`) was 238,314 bytes. Goal: maximize free ROM and RAM using compiler/linker optimization only - no features disabled (round 1). Removing kallsyms symbol debug was explicitly approved afterwards (round 2).
 
 Toolchain: `xtensa-esp32s3-linux-muslfdpic-gcc 14.0.1` (crosstool-NG-custom), GNU ld 2.42.50. Tree: `/tmp/linux-7.2.3` (7.2.3 + ESP32-S3 port).
 
@@ -18,7 +18,7 @@ Checked before optimizing; all three are unavailable, so they were replaced with
 
 Already present before this work (kept): `CC_OPTIMIZE_FOR_SIZE` (`-Os`), `LOG_BUF_SHIFT=14`, `-mtext-section-literals` (literals stay in flash `.text`, not RAM `.data`), no modules, no debug info, no `.eh_frame`.
 
-### Round 1 — no features touched
+### Round 1 - no features touched
 
 1. **`CONFIG_LD_DEAD_CODE_DATA_ELIMINATION=y`** (`-ffunction-sections`/`-fdata-sections` + `--gc-sections`). It was in an old `.config` but kept getting dropped by `olddefconfig`, because **xtensa never selects `HAVE_LD_DEAD_CODE_DATA_ELIMINATION`** (arm/mips/m68k/riscv do). Fixed with a one-line addition to `arch/xtensa/Kconfig` under `config XTENSA`:
    ```
@@ -28,7 +28,7 @@ Already present before this work (kept): `CC_OPTIMIZE_FOR_SIZE` (`-Os`), `LOG_BU
 2. **`CONFIG_SLUB_TINY=y`** (slimmer slab tuning). Kconfig auto-resolved side effects, all slab-debug only: dropped `SLAB_FREELIST_RANDOM/HARDENED`, `SLUB_STATS`, `SLUB_DEBUG`, `SLAB_BUCKETS`, `KMALLOC_PARTITION_CACHES`, `KVFREE_RCU_BATCHED`. No user-facing feature affected; `KALLSYMS` kept at this stage.
 3. **`KCFLAGS="-Oz"`** for the build. `KBUILD_CFLAGS += $(KCFLAGS)` (top `Makefile:1222`) sits after `-Os`, so `-Oz` wins as the last `-O` flag.
 
-### Round 2 — user-approved extras
+### Round 2 - user-approved extras
 
 4. **`CONFIG_KALLSYMS=n`** (`.config` diff was exactly the 3 kallsyms lines; nothing depended on it). Measured footprint before removal: **~290 KB** of `.rodata` (24,069 symbols, token table). Cost of removal: `%pS`/`%ps` printks and traces show raw addresses, no `/proc/kallsyms`. `System.map` + `nm vmlinux` still work, so QEMU-monitor/monitor-debug workflow is preserved.
 5. **`KCFLAGS="-Oz -fmerge-all-constants"`** (the one `-Oz` extra not provably default-on; harmless no-op if already on).
@@ -71,20 +71,20 @@ Requires the `arch/xtensa/Kconfig` select addition (else `olddefconfig` silently
 ## Validation
 
 > Status note (2026-09-07): written before first login. The 7.2.3 boot hang
-> is since fixed and the tree boots to login — see `BRINGUP-7.2.3.md`, and
+> is since fixed and the tree boots to login - see `BRINGUP-7.2.3.md`, and
 > current flash/RAM numbers in `MEMORY-OPTIMIZATION-FINDINGS.md`
-> (xipImage is now ~1.79M after the E1–E9 config diet).
+> (xipImage is now ~1.79M after the E1-E9 config diet).
 
-`test-qemu.sh r8n16 60` after each round → `Kernel:true / TTY:false / Login:false`, byte-identical behavior to the pre-change image. The 7.2.3 boot hang (interrupt-12 storm in `memmap_init`, separate open issue) is unaffected — neither caused nor fixed by this work.
+`test-qemu.sh r8n16 60` after each round → `Kernel:true / TTY:false / Login:false`, byte-identical behavior to the pre-change image. The 7.2.3 boot hang (interrupt-12 storm in `memmap_init`, separate open issue) is unaffected - neither caused nor fixed by this work.
 
 ## Checked and rejected
 
 - `--icf`, LTO: toolchain/kernel don't support them (see above).
-- `const`-ification: profiled top RAM hogs via `nm -S --size-sort` (`irq_desc`, `timer_bases`, `cpuhp_hp_states`, printk ring, `ipv4_net_table`) — all genuine runtime state, no easy wins.
+- `const`-ification: profiled top RAM hogs via `nm -S --size-sort` (`irq_desc`, `timer_bases`, `cpuhp_hp_states`, printk ring, `ipv4_net_table`) - all genuine runtime state, no easy wins.
 - `.init.text/.init.data/.init.rodata` (~114 KB): already freed after boot (`free_initmem`); ROM cost only.
 - `.xt.prop` (1.98 MB) / `.xt.lit`: non-loaded sections, never in flash; file-only.
 
 ## Future (deferred)
 
-- Remove the 17 temporary `ESPDBG` breadcrumb printks (~1–2 KB) once the boot hang is fixed.
+- Remove the 17 temporary `ESPDBG` breadcrumb printks (~1-2 KB) once the boot hang is fixed.
 - Try `LOG_BUF_SHIFT` 14→13 (~30 KB RAM: 8 KB log + ~22 KB ring infos/descs) once full boot logs are no longer needed for hang debugging; the compile-time `#error` guard will reject it if too small.

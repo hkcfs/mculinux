@@ -6,7 +6,7 @@ Linux on a microcontroller. ESP32-S3 boots Linux 7.2.x in ~1 second.
 
 ## What is this?
 
-MCUlinux runs a full Linux kernel on the ESP32-S3 — a $5 microcontroller with 8/16MB PSRAM. It uses a ~2.9MB XIP kernel (upstream tinyconfig + our fragment: GPIO, I2C, WiFi Ethernet), an EROFS+LZMA root filesystem (1.2MB), JFFS2 `/etc` + `/data`, and boots from SPI flash. Networking is a lean `eth0` over the ESP-hosted IPC channel (IPv4 via udhcpc, IPv6 via SLAAC; `wificfg` stages credentials). No MMU, no SD card, no Linux board — just a soldering iron and a serial port.
+MCUlinux runs a full Linux kernel on the ESP32-S3 - a $5 microcontroller with 8/16MB PSRAM. It uses a ~2.9MB XIP kernel (upstream tinyconfig + our fragment: GPIO, I2C, WiFi Ethernet), an EROFS+LZMA root filesystem (1.2MB), JFFS2 `/etc` + `/data`, and boots from SPI flash. Networking is a lean `eth0` over the ESP-hosted IPC channel (IPv4 via udhcpc, IPv6 via SLAAC; `wificfg` stages credentials). No MMU, no SD card, no Linux board - just a soldering iron and a serial port.
 
 ## Supported Devices
 
@@ -151,7 +151,7 @@ Toolchain: xtensa-esp32s3-linux-muslfdpic-gcc 14.0.1 (musl FDPIC)
 - **Kernel**: Vanilla kernel.org stable (always latest in CI) + ESP32-S3 patches (UART, IRQ, MTD, IPC, GPIO-clk, platform, DTS, GPIO-S3, WiFi-SHMEM)
 - **Rootfs**: busybox (always latest stable, NOMMU) + static init, EROFS+LZMA
 - **Networking**: `eth0` lean Ethernet over ESP-hosted IPC shmem, IPv4 (udhcpc) + IPv6 (SLAAC), `wificfg` stages SSID/passphrase via SIOCDEVPRIVATE
-- **Writable storage**: JFFS2 `/etc` (448KB) and `/data` (flash tail: 768KB–8.75MB)
+- **Writable storage**: JFFS2 `/etc` (448KB) and `/data` (flash tail: 768KB-8.75MB)
 - **Toolchain**: musl-based cross-compiler with FDPIC binary format (prebuilt release tarball)
 - **Boot**: Network adapter firmware loads XIP kernel from SPI flash
 - **QEMU**: Espressif fork (`-M esp32s3`); r16n16 emulated with full 16MB PSRAM
@@ -164,4 +164,4 @@ Toolchain: xtensa-esp32s3-linux-muslfdpic-gcc 14.0.1 (musl FDPIC)
 
 ## License
 
-GPLv2 — see [LICENSE](./LICENSE).
+GPLv2 - see [LICENSE](./LICENSE).

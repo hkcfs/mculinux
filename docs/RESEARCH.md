@@ -403,7 +403,7 @@ sudo docker run --rm -v $(pwd):/app -w /app/build \
 **Error:** Kernel lacks CONFIG_SQUASHFS=y
 **Cause:** Cannot rebuild kernel to add it
 **Impact:** Cannot use better compression to fit more in partition
-**Status: RESOLVED** — Rebuilt kernel through Buildroot (no linux-dirclean needed), enabled SQUASHFS, XZ, and EROFS support
+**Status: RESOLVED** - Rebuilt kernel through Buildroot (no linux-dirclean needed), enabled SQUASHFS, XZ, and EROFS support
 
 ### 5. NOMMU Memory Fragmentation
 **Error:** `nommu: Allocation of length 856064 from process 1 (init) failed`
@@ -417,14 +417,14 @@ sudo docker run --rm -v $(pwd):/app -w /app/build \
 
 ### 1. ~~No WiFi/SSH in Stripped Build~~ RESOLVED
 The 8MB flash can only fit a minimal rootfs. WiFi (wpa_supplicant) and SSH (dropbear) are removed.
-**Status: RESOLVED** — Squashfs+zstd compresses to 2.7MB (vs 4.3MB cramfs), fitting all packages with 800KB headroom.
+**Status: RESOLVED** - Squashfs+zstd compresses to 2.7MB (vs 4.3MB cramfs), fitting all packages with 800KB headroom.
 
 ### 2. 16MB Flash Wasted
 The kernel's partition layout is fixed at 8MB. The extra 8MB on r8n16/r16n16 is unused.
 
 ### 3. ~~Kernel Cannot Be Modified After Build~~ RESOLVED
 The `linux-dirclean` + rebuild path is broken. Any kernel config change requires a complete rebuild from scratch, which fails.
-**Status: RESOLVED** — Kernel can be reconfigured by modifying the kernel config fragment and running `make kernel` (which runs Buildroot, not linux-dirclean). Added SQUASHFS, XZ, EROFS support this way.
+**Status: RESOLVED** - Kernel can be reconfigured by modifying the kernel config fragment and running `make kernel` (which runs Buildroot, not linux-dirclean). Added SQUASHFS, XZ, EROFS support this way.
 
 ### 4. FDPIC Binary Crashes (Known)
 Busybox init and syslogd crash with FDPIC-related errors. The system still boots because busybox retries. This is a known issue with the musl-xtensa FDPIC fork.
@@ -603,7 +603,7 @@ mkfs.erofs -zlzma,level=109 -C 16384 \
 Result: 2.43MB (smallest of all tests)
 Kernel: CONFIG_EROFS_FS=y, CONFIG_EROFS_FS_ZIP=y, CONFIG_EROFS_FS_ZIP_LZMA=y
 QEMU boot: PASS (Mounted root (erofs filesystem))
-Status: PASS — DEFAULT
+Status: PASS - DEFAULT
 ```
 
 ## RootFS Compression Comparison (Final)
@@ -618,5 +618,5 @@ Status: PASS — DEFAULT
 | EROFS (optimized) | zstd,level=22 | `-z zstd,level=22,dictsize=64k -C 65536 -E fragments,dedupe` | 2.6 MB |
 | **EROFS (winner)** | **lzma,level=109** | **`-zlzma,level=109 -C 16384 -E fragments,dedupe,ztailpacking,force-inode-compact -x -1 -T 0`** | **2.43 MB** |
 
-**Default choice: EROFS+LZMA** — smallest image (2.43MB), best compression ratio (2.43x), fits easily in 3.5MB partition with 1MB headroom.
+**Default choice: EROFS+LZMA** - smallest image (2.43MB), best compression ratio (2.43x), fits easily in 3.5MB partition with 1MB headroom.
 ```

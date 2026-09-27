@@ -59,7 +59,7 @@ cd "$KSRC"
 # by SENTINELS (a trace each patch must leave), never by `patch` exit codes:
 # GNU patch's skip/already-applied exit status differs between versions
 # (e.g. ubuntu:latest vs debian), and trusting it silently skipped every
-# patch in CI once — no ESP32 symbols, red build, confusing log.
+# patch in CI once - no ESP32 symbols, red build, confusing log.
 echo "Applying ESP32 patches..."
 sentinel_ok() { # $1 = patch basename (000N-...)
     case "$1" in
@@ -89,7 +89,7 @@ echo "All ESP32 patches applied."
 
 # Dirty-tree guard: sentinels prove a patch was applied, but not WHICH
 # version. If the patch set changed since this tree was prepared, a stale
-# application would linger silently — fail loud instead. (CI always uses a
+# application would linger silently - fail loud instead. (CI always uses a
 # pristine tree, so this only ever fires on reused dev trees.)
 STAMP="$KSRC/.patches.stamp"
 CUR_STAMP="$(sha256sum "$PATCHES_DIR"/0*.patch | sed "s|$PATCHES_DIR/||")"

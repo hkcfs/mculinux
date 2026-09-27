@@ -14,7 +14,7 @@ Removed cramfs support from both the kernel config and Buildroot. Replaced with 
 
 | Filesystem | Compression | Block/Cluster | Image Size | Fits 3.5M? |
 |------------|-------------|---------------|------------|------------|
-| cramfs     | zlib        | —             | 4.3 MB     | No (stripped) |
+| cramfs     | zlib        | -             | 4.3 MB     | No (stripped) |
 | SquashFS   | gzip        | 16K           | 2.8 MB     | Yes |
 | SquashFS   | zstd        | 16K           | 2.7 MB     | Yes |
 | SquashFS   | xz          | 16K           | 2.5 MB     | Yes |

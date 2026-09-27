@@ -54,7 +54,7 @@ RUN mkdir -p /opt && \
 ENV PATH="${TOOLCHAIN_DIR}/bin:${PATH}"
 
 # Kernel + busybox sources, compressed (jobs extract what they need).
-# Always the latest stable kernel — automation policy: build newest, fail
+# Always the latest stable kernel - automation policy: build newest, fail
 # loudly if our patches stop applying, never pin a "known good" version.
 # Retries + edge mirror: CI runners occasionally drop long downloads.
 RUN mkdir -p /opt/src && \
@@ -72,8 +72,8 @@ RUN mkdir -p /opt/src && \
     test "$(ls /opt/src/linux-*.tar.xz 2>/dev/null | wc -l)" -ge 1
 
 # Busybox source, always latest stable: shallow git clone of the newest tag
-# (max over all remotes — some mirrors go stale; tarballs are unreliable).
-# Best-effort cache only: CI re-resolves at job time. Warn, don't fail —
+# (max over all remotes - some mirrors go stale; tarballs are unreliable).
+# Best-effort cache only: CI re-resolves at job time. Warn, don't fail -
 # a blip here must not break the whole image.
 RUN BBTAGS="$(git ls-remote --tags git://git.busybox.net/busybox 2>/dev/null; \
       git ls-remote --tags https://git.busybox.net/busybox 2>/dev/null; \

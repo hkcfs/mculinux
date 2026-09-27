@@ -1,6 +1,6 @@
 # MCUlinux
 
-Linux for ESP32-S3 — XIP from SPI flash, EROFS rootfs, 8/16MB flash configs.
+Linux for ESP32-S3 - XIP from SPI flash, EROFS rootfs, 8/16MB flash configs.
 
 ## Device Matrix
 
@@ -53,7 +53,7 @@ make all
 - QEMU with xtensa-esp32s3 support (`make qemu`)
 - `mkfs.erofs` (erofs-utils) for rootfs, `mkfs.jffs2` (mtd-utils) for `make etc`
 
-No Buildroot — kernel builds from tinyconfig + fragment, rootfs assembles
+No Buildroot - kernel builds from tinyconfig + fragment, rootfs assembles
 from `rootfs/` + busybox.
 
 ### Full Build
@@ -70,7 +70,7 @@ make image DEVICE=r8n8 && make test DEVICE=r8n8
 ### Kernel Patches
 
 ESP32-S3 kernel patches are in `patches/linux-esp32/` (`0001-0009`), plus
-`fragment.config` — our deltas on upstream `tinyconfig`. Key modifications:
+`fragment.config` - our deltas on upstream `tinyconfig`. Key modifications:
 
 - `gpio-mmio.c`: ESP32 clock GPIO controller support
 - `irq-esp32-intc.c`: ESP32 interrupt controller

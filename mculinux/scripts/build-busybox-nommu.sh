@@ -17,7 +17,7 @@ echo "=== Building busybox $BUSYBOX_VERSION for NOMMU ==="
 
 # Acquire source: builder pre-extract > prefetched tarball > git clone tag
 # (busybox.net is unreliable; git is the primary remote source) > tarball
-# download. Fail loudly if nothing works — never silently build stale code.
+# download. Fail loudly if nothing works - never silently build stale code.
 fetch_busybox() {
     local ver="$1" tag="$2" dest="$3"
     if [ -d "/opt/src/busybox-${ver}" ]; then
@@ -62,7 +62,7 @@ fi
 cd "$BUSYBOX_DIR"
 cp "$PATCHES_DIR/defconfig" .config
 
-# Apply NOMMU hush patch — FAIL LOUD if upstream moved the anchor, so CI
+# Apply NOMMU hush patch - FAIL LOUD if upstream moved the anchor, so CI
 # goes red instead of silently building a MMU-assuming hush. Idempotent:
 # an already-patched tree is detected and skipped.
 if grep -q '^#define BUILD_AS_NOMMU 1$' shell/hush.c; then
@@ -73,7 +73,7 @@ elif grep -q '^#define BUILD_AS_NOMMU 0$' shell/hush.c; then
         || { echo "FAIL: NOMMU patch did not apply"; exit 1; }
     echo "NOMMU hush patch applied."
 else
-    echo "FAIL: shell/hush.c NOMMU anchor not found — upstream changed it."
+    echo "FAIL: shell/hush.c NOMMU anchor not found - upstream changed it."
     echo "Update patches/busybox-nommu/apply-nommu-patch.sh for busybox $BUSYBOX_VERSION."
     exit 1
 fi

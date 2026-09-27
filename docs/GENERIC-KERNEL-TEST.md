@@ -7,8 +7,8 @@
 ## Result: CANNOT BUILD generic mainline kernel for ESP32-S3
 
 ### What we tried
-1. `virt_defconfig` — targets dc232b core (MMU)
-2. `nommu_kc705_defconfig` — targets de212 core (NOMMU)
+1. `virt_defconfig` - targets dc232b core (MMU)
+2. `nommu_kc705_defconfig` - targets de212 core (NOMMU)
 
 Both fail with assembly errors:
 ```
@@ -22,9 +22,9 @@ The generic kernel's Xtensa configs target **different Xtensa cores** (dc232b, d
 Our cross-compiler was built for the ESP32-S3 core and doesn't support other cores' ISA extensions.
 
 ### What the jcmvbkbc fork adds (that mainline lacks)
-1. **Xtensa variant** — `arch/xtensa/variants/esp32s3/` (core config, ISA extensions)
-2. **Platform support** — `arch/xtensa/platforms/esp32/` (memory map, XIP, noMMU)
-3. **Drivers** — 15+ ESP32-S3 specific drivers not in mainline:
+1. **Xtensa variant** - `arch/xtensa/variants/esp32s3/` (core config, ISA extensions)
+2. **Platform support** - `arch/xtensa/platforms/esp32/` (memory map, XIP, noMMU)
+3. **Drivers** - 15+ ESP32-S3 specific drivers not in mainline:
    - IRQ controller (`irq-esp32-intc.c`)
    - Clock controller (`clk-esp32s3.c`)
    - UART (`esp32_uart.c`)
@@ -36,8 +36,8 @@ Our cross-compiler was built for the ESP32-S3 core and doesn't support other cor
    - USB ACM (`esp32_acm.c`)
    - USB PHY (`phy-esp32s3-usb.c`)
    - WiFi (`espressif/`)
-4. **Device tree** — `esp32s3.dtsi`, `esp32s3-devkit-c1.dts`
-5. **Kconfig options** — `XTENSA_PLATFORM_ESP32`, `XTENSA_VARIANT_CUSTOM`
+4. **Device tree** - `esp32s3.dtsi`, `esp32s3-devkit-c1.dts`
+5. **Kconfig options** - `XTENSA_PLATFORM_ESP32`, `XTENSA_VARIANT_CUSTOM`
 
 ### Conclusion
 Using the generic mainline kernel for ESP32-S3 is **not possible** without:

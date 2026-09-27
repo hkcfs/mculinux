@@ -54,7 +54,7 @@ struct esp32_wifi_cfg {
 	unsigned char pass_len;
 };
 
-/* if_nametoindex needs /sys (absent: no SYSFS) — probe via SIOCGIFINDEX. */
+/* if_nametoindex needs /sys (absent: no SYSFS) - probe via SIOCGIFINDEX. */
 static int if_exists(const char *name)
 {
 	struct ifreq ifr;

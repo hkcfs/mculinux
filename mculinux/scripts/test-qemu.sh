@@ -102,7 +102,7 @@ for attempt in 1 2 3; do
         -drive file="$FLASH_IMAGE",if=mtd,format=raw \
         2>&1) || EXIT_CODE=$?
 
-    # Check for "Bad ram pointer" — flash/bootloader incompatibility
+    # Check for "Bad ram pointer" - flash/bootloader incompatibility
     if echo "$OUTPUT" | grep -q "Bad ram pointer"; then
         echo "  Attempt $attempt: Bad ram pointer (bootloader/flash size mismatch)"
         if [ $attempt -lt 3 ]; then
@@ -160,7 +160,7 @@ if echo "$OUTPUT" | grep -qE " on /etc type jffs2"; then
     HAS_ETC_JFFS2=true
 fi
 # Anchored (^...$) so the echoed command line itself (which contains the
-# token) can't match — only the guest's actual output line. CRs stripped
+# token) can't match - only the guest's actual output line. CRs stripped
 # first: the console emits stray carriage returns that break $ anchors.
 OUTPUT_CLEAN="$(echo "$OUTPUT" | tr -d '\r')"
 if echo "$OUTPUT_CLEAN" | grep -qx "ETC_RW_OK"; then
@@ -185,7 +185,7 @@ fi
 
 # Guest memory/storage/mount report: full outputs of the last captured block.
 # Note on "free disk": / (erofs) is read-only by design and always shows
-# 100% — it is not writable free space. Writable space = tmpfs lines plus
+# 100% - it is not writable free space. Writable space = tmpfs lines plus
 # /etc, which is jffs2 (CONFIG_JFFS2_FS via the kernel fragment).
 report_measure() {
     echo "--- Guest: free (full) ---"

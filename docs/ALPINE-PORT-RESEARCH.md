@@ -125,5 +125,5 @@ sha512sums="..."
 - jcmvbkbc esp32-linux-build: https://github.com/jcmvbkbc/esp32-linux-build
 
 > Note (2026-09): the `mculinux-packages/` APKBUILD experiment referenced
-> above was removed — rootfs is assembled from `mculinux/rootfs/` + busybox,
+> above was removed - rootfs is assembled from `mculinux/rootfs/` + busybox,
 > no package manager. This doc stays as research.

@@ -27,7 +27,7 @@ Related docs: `KERNEL-SIZE-OPTIMIZATION.md` (size work),
 
 Rebuilt 9 port files from the 13 diff-patches against the 6.16 tree:
 
-- `drivers/gpio/gpio-mmio.c`: `+{esp,esp32-clk-gpio}` (UART clock gate —
+- `drivers/gpio/gpio-mmio.c`: `+{esp,esp32-clk-gpio}` (UART clock gate -
   without it `uart0_clk` probe defers forever; same fix as 7.1.3)
 - `drivers/irqchip/irq-esp32-intc.c` + Makefile entry, `SERIAL_ESP32` Kconfig,
   `arch/xtensa` Kconfig (`XTENSA_PLATFORM_ESP32`, `ESP32_INTC`),
@@ -61,7 +61,7 @@ Every boot stopped after (44-line log):
 [    0.000000] ESPDBG: calc_nr_kernel_pages done
 ```
 i.e. inside `memmap_init()`, the first thing after `calc_nr_kernel_pages()`
-in `free_area_init()`. No panic, no fault message — total silence.
+in `free_area_init()`. No panic, no fault message - total silence.
 
 ### 3.2 How it was localized (breadcrumbs)
 
@@ -77,7 +77,7 @@ ESPDBG: zonerange zid=0 start=251904 end=253952 ...
 ESPDBG: range enter size=2048 nid=0 zone=0 start=251904 sp=3d801ee0
 ESPDBG: range pfn=251904 sp=3d801ee0
 ESPDBG: pg 251904
-(no pg 251905 — death inside the FIRST __init_single_page)
+(no pg 251905 - death inside the FIRST __init_single_page)
 ```
 
 SP was sane (`0x3d801ee0`, inside the init stack). Next probe printed the
@@ -87,7 +87,7 @@ mapping itself:
 ESPDBG: mem_map=3dfe91a0 page0=3e7991a0 off=0
 ```
 
-`page0 = 0x3e7991a0` is **past the end of RAM** (`0x3d800000–0x3e000000`).
+`page0 = 0x3e7991a0` is **past the end of RAM** (`0x3d800000-0x3e000000`).
 The first `memset` in `__init_single_page` wrote 16 MB past the array.
 
 ### 3.3 Root cause #1: `CONFIG_DEFAULT_MEM_START=0x0`
@@ -110,21 +110,21 @@ Boot immediately proceeded past `memmap_init` (`memmap_init done`,
 QEMU `-d int` tracing showed ~8M `do_interrupt(12)` hits and factory-app
 bytes at the stuck PC, which looked like an interrupt-routing bug (SPI3→CPU12
 suspect, intc `disconnect_all` timing, etc.). Two days of forensics followed
-— most of it later proven **worthless**, because PCs were symbolized against
+- most of it later proven **worthless**, because PCs were symbolized against
 the WRONG build's `System.map` (`#8` trace vs `#12` map gave phantom
 `tty_init`/`__irq_domain_instantiate` hits).
 
 **Lesson: always verify the `System.map`/`vmlinux` matches the exact image
 under test (`Linux version ... #N` banner).** Re-traced on the current build
 with correct symbols, the "storm" PCs were the kernel exception/double-fault
-vectors — i.e. aftermath of the wild `memset`, not a cause. The INTENABLE
+vectors - i.e. aftermath of the wild `memset`, not a cause. The INTENABLE
 mask experiment (setup_arch) was proven no-effect and is slated for removal.
 
 GDB attempts: Debian `gdb-multiarch` (installed user-local via
-`apt-get download` + `dpkg-deb -x` to `/tmp/opencode/gdbroot`) connects but
-fails with `Remote 'g' packet reply is too long (944 vs 180 bytes)` — QEMU's
+`apt-get download` + `dpkg-deb -x` to `/tmp/mculinux/gdbroot`) connects but
+fails with `Remote 'g' packet reply is too long (944 vs 180 bytes)` - QEMU's
 LX7 register layout vs GDB's built-in xtensa core. Espressif's toolchain
-tarball (`xtensa-esp-elf-16.1.0`, 89 MB, in `/tmp/opencode/`) ships **no GDB
+tarball (`xtensa-esp-elf-16.1.0`, 89 MB, in `/tmp/mculinux/`) ships **no GDB
 binary**. QEMU monitor (`info registers`, `xp`, `pmemsave`, `-d int`) plus
 printks did the whole job instead.
 
@@ -134,20 +134,20 @@ After the MEM_START fix, each boot got further and each stop had exactly one
 cause. All were 7.2.3-reconstruction misses (config or fork code absent from
 the 13 patches):
 
-1. **`CONFIG_LD_DEAD_CODE_DATA_ELIMINATION` off** — the tree briefly had no
+1. **`CONFIG_LD_DEAD_CODE_DATA_ELIMINATION` off** - the tree briefly had no
    output past `sched_clock`; turning DCE back off got UART probing.
    (Status: DCE currently OFF. The jcmvbkbc fork enables DCE for xtensa, so
-   DCE may be innocent and the earlier stop may have been timing luck —
+   DCE may be innocent and the earlier stop may have been timing luck -
    re-test candidate for regaining ~460 KB ROM. NOT YET RETRIED.)
 2. **`CONFIG_EROFS_FS` (+`_XATTR/_POSIX_ACL/_SECURITY/_BACKED_BY_FILE/_ZIP/_ZIP_LZMA`)**
-   — rootfs is EROFS; without it `VFS: Unable to mount root fs`.
+   - rootfs is EROFS; without it `VFS: Unable to mount root fs`.
 3. **`CONFIG_MTD_PHYSMAP_OF=y` + `|| MTD_ESP32` dep fix** in
-   `drivers/mtd/maps/Kconfig` — without the dep, `MTD_PHYSMAP` is
+   `drivers/mtd/maps/Kconfig` - without the dep, `MTD_PHYSMAP` is
    unselectable (needs CFI/JEDEC/ROM/RAM/LPDDR, all off), so `physmap`
    never binds `flash@42000000` ("mtd-rom"): no MTD, no partitions.
    (The `|| MTD_ESP32` exists in the 7.1 live tree but in none of the 13
-   patches — fork-level change.)
-4. **PIC hierarchy alloc/free** — `irq_domain_alloc_irqs_parent returned -38`
+   patches - fork-level change.)
+4. **PIC hierarchy alloc/free** - `irq_domain_alloc_irqs_parent returned -38`
    (`-ENOSYS`): the parent `xtensa-pic` domain has no `.alloc`, so the
    intc's parent alloc fails → IPC and UART get no IRQ
    (`error -6: IRQ index 0 not found`). Ported `xtensa_pic_irq_domain_alloc`
@@ -155,7 +155,7 @@ the 13 patches):
    `irq-xtensa-pic.c` into 7.2.3's. IPC+UART IRQs allocate, MTD partitions
    appear (`6 esp32 partitions found on MTD device 42000000.flash`),
    `erofs (device mtdblock5): mounted`, `Run /sbin/init`.
-5. **ISS `rs_init` steals `ttyS0`** — `arch/xtensa/platforms/iss/console.c`
+5. **ISS `rs_init` steals `ttyS0`** - `arch/xtensa/platforms/iss/console.c`
    `late_initcall(rs_init)` bulk-registers a single-port "ttyS" driver with
    no `DYNAMIC_DEV`, racing (and beating, ~2.34s vs ~2.5s) the real ESP32
    UART port registration → `sysfs: cannot create duplicate filename
@@ -172,18 +172,18 @@ the 13 patches):
    `arch/xtensa/platforms/esp32/include/platform/serial.h`
    (`BASE_BAUD 115200`, both copied from the 7.1 tree which has them),
    and gated `rs_init`/`late_initcall` on `CONFIG_XTENSA_PLATFORM_ISS`.
-   (Latent on 7.1.3 too — its boots never reach late_initcall timing in the
+   (Latent on 7.1.3 too - its boots never reach late_initcall timing in the
    observed window.)
 
 Missing-but-harmless notes: `CONFIG_JFFS2_FS` is off (same as working tree;
-`/etc` jffs2 mount will fail in userspace — check later), VFAT/EXFAT stay on
+`/etc` jffs2 mount will fail in userspace - check later), VFAT/EXFAT stay on
 (reconstruction noise, harmless; exFAT probe failures in the log are just
 filesystem-try order before erofs matches).
 
 ## 5. Config changes vs the reconstructed defconfig
 
 ```
-CONFIG_DEFAULT_MEM_START=0x3d800000   (was 0x0 — THE hang)
+CONFIG_DEFAULT_MEM_START=0x3d800000   (was 0x0 - THE hang)
 CONFIG_EROFS_FS=y + _XATTR/_POSIX_ACL/_SECURITY/_BACKED_BY_FILE/_ZIP/_ZIP_LZMA
 CONFIG_MTD_PHYSMAP=y
 CONFIG_MTD_PHYSMAP_OF=y
@@ -207,7 +207,7 @@ Port fixes that must become `patches/linux-7.2.3/` hunks (not captured yet):
 ## 7. Validation (build #30+, r8n16, 90 s)
 
 - `test-qemu.sh`: Kernel:true TTY:true **Login:true**
-  (note: it once printed `Kernel:false` alongside Login:true — harness grep
+  (note: it once printed `Kernel:false` alongside Login:true - harness grep
   quirk, the serial log is authoritative).
 - Manual: `root` login → `/ #` → `free -m` →
   `total 8 used 4 free 2 buff/cache 2 available 2`.
@@ -224,7 +224,7 @@ Port fixes that must become `patches/linux-7.2.3/` hunks (not captured yet):
 - Re-test DCE on (fork supports it; ~460 KB at stake); keep off if it hangs.
 - Capture `patches/linux-7.2.3/` (`extract-patches`-style) + a 7.2.3
   `defconfig` so the tree is reproducible from vanilla + patches.
-- Follow-ups: `/etc` jffs2 (JFFS2 off — decide), `test-qemu.sh` Kernel:false
+- Follow-ups: `/etc` jffs2 (JFFS2 off - decide), `test-qemu.sh` Kernel:false
   quirk, `LOG_BUF_SHIFT` 13 test, r8n8/r16n16 matrix, `make test-loop`.
 - The `Guru Meditation Error: Core 1 panic'ed` line seen once after a
   `panic=1` reboot is reboot-path noise (ESP-IDF bootloader), not our bug.
@@ -238,5 +238,5 @@ Port fixes that must become `patches/linux-7.2.3/` hunks (not captured yet):
 - `test-qemu.sh` verdicts are hints; serial logs are truth (buffering: always
   let QEMU exit orderly or use `timeout`, never trust a killed pipe).
 - Diff against the working tree early and completely (config AND fork-only
-  files like `irq-xtensa-pic.c`, `platforms/esp32/`, Kconfig deps) — every
+  files like `irq-xtensa-pic.c`, `platforms/esp32/`, Kconfig deps) - every
   root cause here was a reconstruction miss, not new code.
