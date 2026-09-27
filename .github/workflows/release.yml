@@ -150,6 +150,20 @@ jobs:
               `wificfg mac` reads the firmware MAC
             - **Buses**: ESP32-S3 GPIO driver (49 pins, chardev) + I2C-GPIO
               (`/dev/i2c-0`)
+            - **USB (experimental)**: native Synopsys DWC2 in host mode, with
+              HID and mass storage. The driver probes and reaches the
+              controller, but **this has never been validated on real
+              hardware**, and QEMU does not model the ESP32-S3 USB peripheral
+              at all. In QEMU the probe stops at `Bad value for GSNPSID:
+              0x00000000`, which is the emulator, not the driver. Expect no
+              working USB from this build. Details and the hardware checklist
+              are in `docs/USB-WIFI-STATUS.md` on the release branch.
+
+            ### Experimental build
+            This is a pre-release for hardware validation. The WiFi path is
+            the shipped, working feature. USB is wired and unproven. If you
+            are after a known-good WiFi-only build, use the previous
+            pre-release instead.
 
             ### Supported Devices
             - **r8n8**: 8MB PSRAM + 8MB Flash (768KB /data)
@@ -170,9 +184,17 @@ jobs:
             images/flash_r8n16.zip
             images/flash_r16n16.zip
           draft: false
-          # Dispatches may request a pre-release (hardware validation);
-          # tag pushes always cut final releases.
-          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease }}
+          # A dispatch may request a pre-release explicitly; a tag push
+          # treats any hyphenated tag as a pre-release by convention (semver
+          # pre-release identifiers, e.g. v1.3.0-exp.1). Hyphenated tags were
+          # previously published as FINAL by mistake, which is the worst of
+          # the three options: an experimental build must never look stable.
+          # The event_name guard matters: a dispatch from a branch whose name
+          # contains a hyphen (exp-wifi-usb-support) must still honour the
+          # explicit input rather than being forced to a pre-release.
+          prerelease: >-
+            ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease
+            || (github.event_name == 'push' && contains(github.ref_name, '-')) }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
