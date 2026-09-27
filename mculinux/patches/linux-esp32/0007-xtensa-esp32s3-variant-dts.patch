@@ -1728,7 +1728,7 @@ Subject: [PATCH] xtensa: ESP32-S3 variant headers + device trees
 +		pinctrl-single,pins = <
 +			PIN(6) FUN0_20MA_IE_WPU			/* SDA */
 +			PIN(7) FUN0_20MA_IE_WPU>;		/* SCL */
-+	>;
++	};
 +	spi2_pins: spi2_pins {
 +		pinctrl-single,pins = <
 +			PIN(10) (FUN_SEL(4) | FUN_DRV_20MA)	/* CS0 */
