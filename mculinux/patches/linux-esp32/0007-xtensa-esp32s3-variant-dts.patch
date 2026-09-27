@@ -1355,7 +1355,7 @@ Subject: [PATCH] xtensa: ESP32-S3 variant headers + device trees
 +#endif /*_XTENSA_CORE_TIE_ASM_H*/
 --- /dev/null
 +++ b/arch/xtensa/boot/dts/esp32s3.dtsi
-@@ -0,0 +1,313 @@
+@@ -0,0 +1,314 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/dts-v1/;
 +
@@ -1518,6 +1518,9 @@ Subject: [PATCH] xtensa: ESP32-S3 variant headers + device trees
 +			reg = <0x60008120 4
 +			       0x60039000 4>;
 +			#phy-cells = <0>;
++			/* No mainline PHY driver binds this compatible, and the
++			 * controller below does not reference it: the internal
++			 * PHY is already set up by the ROM bootloader. */
 +			status = "disabled";
 +		};
 +
@@ -1607,8 +1610,6 @@ Subject: [PATCH] xtensa: ESP32-S3 variant headers + device trees
 +			clock-names = "otg";
 +			resets = <&reset 23>;
 +			reset-names = "dwc2";
-+			phys = <&usb_phy>;
-+			phy-names = "usb2-phy";
 +
 +			g-rx-fifo-size = <64>;
 +			g-np-tx-fifo-size = <16>;
@@ -1671,7 +1672,7 @@ Subject: [PATCH] xtensa: ESP32-S3 variant headers + device trees
 +};
 --- /dev/null
 +++ b/arch/xtensa/boot/dts/esp32s3-devkit-c1.dts
-@@ -0,0 +1,132 @@
+@@ -0,0 +1,124 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/dts-v1/;
 +#include <dt-bindings/gpio/gpio.h>
@@ -1700,14 +1701,6 @@ Subject: [PATCH] xtensa: ESP32-S3 variant headers + device trees
 +
 +&gpio_in_mux {
 +	status = "ok";
-+	usb_device_in: usb_device_in {
-+		pinctrl-single,pins = <
-+			GPIO_FUNC_IN_SEL(58) 0x38		/* usb_otg_iddig_in: fixed '1' */
-+			GPIO_FUNC_IN_SEL(59) 0x3c		/* usb_srp_avalid_in: fixed '0' */
-+			GPIO_FUNC_IN_SEL(60) 0x38		/* usb_srp_bvalid_in: fixed '1' */
-+			GPIO_FUNC_IN_SEL(61) 0x38>;		/* usb_otg_vbusvalid_in: fixed '1' */
-+	};
-+
 +	usb_host_in: usb_host_in {
 +		pinctrl-single,pins = <
 +			GPIO_FUNC_IN_SEL(58) 0x3c		/* usb_otg_iddig_in: fixed '0' */
@@ -1719,6 +1712,8 @@ Subject: [PATCH] xtensa: ESP32-S3 variant headers + device trees
 +
 +&rtc_iomux {
 +	status = "ok";
++	/* Drive USB_D-/D+ from the RTC domain so deep sleep holds the
++	 * bus in a defined state (no phantom disconnect on wake). */
 +	usb_rtc_pins: usb_rtc_pins {
 +		pinctrl-single,pins = <
 +			PIN(19) RTC_MUX_SEL			/* USB_D- */
@@ -1733,7 +1728,7 @@ Subject: [PATCH] xtensa: ESP32-S3 variant headers + device trees
 +		pinctrl-single,pins = <
 +			PIN(6) FUN0_20MA_IE_WPU			/* SDA */
 +			PIN(7) FUN0_20MA_IE_WPU>;		/* SCL */
-+	};
++	>;
 +	spi2_pins: spi2_pins {
 +		pinctrl-single,pins = <
 +			PIN(10) (FUN_SEL(4) | FUN_DRV_20MA)	/* CS0 */
@@ -1746,6 +1741,8 @@ Subject: [PATCH] xtensa: ESP32-S3 variant headers + device trees
 +			PIN(43) FUN0_20MA			/* U0TXD */
 +			PIN(44) FUN0_20MA_IE_WPU>;		/* U0RXD */
 +	};
++	/* USB D-/D+ on GPIO19/20; the sleep pins in rtc_iomux take
++	 * these two lines to a defined level when the core sleeps. */
 +	usb_pins: usb_pins {
 +		pinctrl-single,pins = <
 +			PIN(19) MUX_SLP_SEL			/* USB_D- */
@@ -1778,18 +1775,14 @@ Subject: [PATCH] xtensa: ESP32-S3 variant headers + device trees
 +	status = "ok";
 +};
 +
-+&usb_phy {
-+	status = "ok";
-+};
-+
++/* USB OTG (DWC2) in host mode. The bus runs the internal PHY on
++ * GPIO19/20, so DWC2 is left without a phys phandle on purpose: no
++ * mainline driver binds "esp,esp32s3-usb-phy", and referencing it
++ * would defer probe forever. The PHY itself is enabled by the ROM
++ * bootloader, so the controller can be used directly. */
 +&usb {
-+#if 1
 +	dr_mode = "host";
-+	pinctrl-0 = <&usb_host_in &usb_rtc_pins>;
-+#else
-+	dr_mode = "peripheral";
-+	pinctrl-0 = <&usb_device_in &usb_rtc_pins>;
-+#endif
++	pinctrl-0 = <&usb_host_in &usb_rtc_pins &usb_pins>;
 +	pinctrl-names = "default";
 +	status = "ok";
 +};
