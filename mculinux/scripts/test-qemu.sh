@@ -88,6 +88,12 @@ for attempt in 1 2 3; do
             pe "rm -f /etc/.wtest"
             pe "touch /data/.wtest && echo DATA_RW_OK"
             pe "rm -f /data/.wtest"
+            # WiFi control path: one full Linux -> shmem IPC -> Core 0
+            # firmware -> response round trip. Proves the driver, the
+            # command protocol and the firmware dispatcher all agree, which
+            # a mere eth0 probe line does not. The MAC reads all-zero
+            # because QEMU has no radio/NVRAM; the answer is the point.
+            pe "---WIFICFG---"; pe "wificfg mac"
             pe "---MEASURED---"
         done
         # Keep stdin open a little past the last bundle so QEMU never sees
@@ -141,6 +147,8 @@ HAS_ETC_RW=false
 HAS_DATA_JFFS2=false
 HAS_DATA_RW=false
 HAS_WIFI=false
+HAS_WIFI_IPC=false
+HAS_USB_PROBE=false
 HAS_GPIO=false
 HAS_I2C=false
 
@@ -176,6 +184,23 @@ fi
 if echo "$OUTPUT" | grep -q "esp32-wifi-shmem.*eth0"; then
     HAS_WIFI=true
 fi
+# Full WiFi control round trip, not just the probe. Anchored so the echoed
+# command line cannot match. Accept if ANY of the six bundle iterations
+# answered, because the emulated UART and the 8s IPC timeout make the
+# occasional loss real; six independent attempts make a false negative
+# unlikely. Stability measured across repeated full runs before gating.
+if echo "$OUTPUT_CLEAN" | grep -q "^eth0 firmware MAC: "; then
+    HAS_WIFI_IPC=true
+fi
+# DWC2 probe reaching the controller at all. On QEMU the ESP32-S3 USB
+# peripheral is not modelled, so the probe always ends at
+# "Bad value for GSNPSID: 0x00000000" - that is the emulator, not a defect.
+# What this catches is the regression where the probe defers forever
+# (-EPROBE_DEFER from a "resets" phandle with no driver) and prints nothing
+# at all, which is how this went unnoticed until it was instrumented.
+if echo "$OUTPUT" | grep -q "dwc2 60080000.usb:"; then
+    HAS_USB_PROBE=true
+fi
 if echo "$OUTPUT" | grep -q "gpio-esp32s3.*[0-9]* pins"; then
     HAS_GPIO=true
 fi
@@ -210,6 +235,8 @@ echo "  /etc writable: $HAS_ETC_RW"
 echo "  /data jffs2: $HAS_DATA_JFFS2"
 echo "  /data writable: $HAS_DATA_RW"
 echo "  WiFi eth0: $HAS_WIFI (info only)"
+echo "  WiFi IPC round trip: $HAS_WIFI_IPC (info only)"
+echo "  DWC2 probe reached controller: $HAS_USB_PROBE (info only)"
 echo "  GPIO-S3: $HAS_GPIO (info only)"
 echo "  I2C: $HAS_I2C (info only)"
 echo ""
