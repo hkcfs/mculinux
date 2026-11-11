@@ -17,6 +17,14 @@ SHELL ["/bin/bash", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# ubuntu.com vhosts (archive/security) are currently unresolvable from the
+# GitHub-hosted runner fleet (AAAA-only answers; "Could not resolve").
+# The Azure mirror carries the same pockets over IPv4 inside the same
+# cloud the runners run in.
+RUN sed -i -e 's|http://archive.ubuntu.com/ubuntu/|http://azure.archive.ubuntu.com/ubuntu/|g' \
+           -e 's|http://security.ubuntu.com/ubuntu/|http://azure.archive.ubuntu.com/ubuntu/|g' \
+    /etc/apt/sources.list.d/ubuntu.sources
+
 # Bumpable source versions (kernel is always latest-stable, resolved below;
 # busybox is always latest-stable, resolved via git tags below).
 ARG TOOLCHAIN_URL=https://github.com/hkcfs/mculinux/releases/download/toolchain/xtensa-esp32s3-linux-muslfdpic.tar.xz
