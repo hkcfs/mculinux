@@ -141,7 +141,7 @@ diff --git a/network_adapter/main/linux_boot.c b/network_adapter/main/linux_boot
 -	g_abort_on_ipc = 1;
 +	/* mculinux: old IDF had g_abort_on_ipc (panic without stalling the
 +	 * Linux CPU); v6.0 removed it. A firmware panic may now disturb
-+	 * Linux too — but the system is dead either way (watchdog reboots).
++	 * Linux too - but the system is dead either way (watchdog reboots).
 +	 * Known gap, not a boot path concern. */
  
  	asm volatile ("mov a2, %1 ; jx %0" :: "r"(linux), "r"(tag) : "a2");

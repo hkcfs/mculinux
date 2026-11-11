@@ -163,7 +163,7 @@ esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 460800 \
             const expected = EXPECTED_MB[deviceSelect.value];
             let msg = `Loaded: ${file.name} (${sizeMB} MB)`;
             if (Math.abs(firmwareData.byteLength / 1024 / 1024 - expected) > 0.5) {
-                msg += ` — WARNING: ${deviceSelect.value} expects ~${expected} MB. Wrong image?`;
+                msg += ` - WARNING: ${deviceSelect.value} expects ~${expected} MB. Wrong image?`;
             }
             fileInfo.textContent = msg;
             fileInfo.style.display = 'block';

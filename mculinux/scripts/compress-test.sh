@@ -30,7 +30,7 @@ HAS_EROFS=0
 command -v mksquashfs >/dev/null 2>&1 && HAS_SQUASHFS=1
 command -v mkfs.erofs >/dev/null 2>&1 && HAS_EROFS=1
 
-# Install tools if missing (no sudo here — install them yourself)
+# Install tools if missing (no sudo here - install them yourself)
 if [ $HAS_SQUASHFS -eq 0 ] || [ $HAS_EROFS -eq 0 ]; then
     echo "WARN: missing tools (need squashfs-tools and/or erofs-utils), skipping those variants"
 fi

@@ -105,7 +105,7 @@ sed -i '/^nvs,/ { /readonly/! s/$/,readonly/ }' partition_table.esp32s3
 
 # v6.0 removed several Kconfig choices (APPTRACE_DESTINATION members,
 # ESP32-only tracemem); stale lines for surviving members crash kconfgen
-# (all-n on an invisible choice) — and kconfgen reads BOTH the seed copy
+# (all-n on an invisible choice) - and kconfgen reads BOTH the seed copy
 # and sdkconfig.defaults.esp32s3 as defaults, so strip both files.
 # Idempotent (re-deleting is a no-op); fork source itself stays pristine.
 # S3 never uses these anyway.

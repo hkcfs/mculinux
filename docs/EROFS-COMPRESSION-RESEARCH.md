@@ -54,8 +54,8 @@ Larger compress physical clusters (`-C`) improve compression ratio:
 
 | Cluster Size | zstd Size | lzma Size |
 |-------------|-----------|-----------|
-| 4096 | 2.70 MB | — |
-| 8192 | 2.63 MB | — |
+| 4096 | 2.70 MB | - |
+| 8192 | 2.63 MB | - |
 | 16384 | 2.59 MB | **2.43 MB** |
 
 ### Extended Options Tested
@@ -72,15 +72,15 @@ Larger compress physical clusters (`-C`) improve compression ratio:
 
 ### Failed Options
 
-- `--zD=1` — unrecognized option in erofs-utils 1.8.6
-- `-Ccompr-hint=packed` — parsed as physical cluster size, invalid
-- `-E compr-hint=packed` — unknown extended option
-- `-zlzma,level=109,dictsize=8388608` with `-C 4096` — larger dict but smaller cluster, net worse
+- `--zD=1` - unrecognized option in erofs-utils 1.8.6
+- `-Ccompr-hint=packed` - parsed as physical cluster size, invalid
+- `-E compr-hint=packed` - unknown extended option
+- `-zlzma,level=109,dictsize=8388608` with `-C 4096` - larger dict but smaller cluster, net worse
 
 ## Why LZMA Wins
 
-1. **Better compression ratio** — LZMA2 (MicroLZMA at level 109) achieves ~6.5% better ratio than ZSTD level 22 on this data
-2. **16K clusters** — larger compression windows give the algorithm more data to find patterns
+1. **Better compression ratio** - LZMA2 (MicroLZMA at level 109) achieves ~6.5% better ratio than ZSTD level 22 on this data
+2. **16K clusters** - larger compression windows give the algorithm more data to find patterns
 3. **Tradeoff**: LZMA decompresses slower than ZSTD, but on ESP32-S3's 240MHz dual-core, the difference is ~1-2 seconds at boot
 
 ## Recommendation
@@ -94,4 +94,4 @@ mkfs.erofs -zlzma,level=109 -C 16384 \
   rootfs.erofs ./target/
 ```
 
-This produces a **2.43 MB** image from 5.9MB source — a **2.43x compression ratio** that fits easily in the 3.5MB flash partition with 1MB headroom.
+This produces a **2.43 MB** image from 5.9MB source - a **2.43x compression ratio** that fits easily in the 3.5MB flash partition with 1MB headroom.

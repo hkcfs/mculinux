@@ -109,7 +109,7 @@ Always the latest stable unless `KERNEL_VERSION=7.2.4` pins one.
    already-applied patches are skipped for idempotent re-runs)
 4. `make ARCH=xtensa tinyconfig`, merge fragment, `olddefconfig`
 5. Verifies load-bearing symbols (`PRINTK`, `BLOCK`, `MTD_BLOCK`,
-   `EROFS_FS`, `JFFS2_FS`, `SERIAL_ESP32`, `TTY`, DCE off) — fail loud
+   `EROFS_FS`, `JFFS2_FS`, `SERIAL_ESP32`, `TTY`, DCE off) - fail loud
 6. `make KCFLAGS="-Oz -fmerge-all-constants" xipImage`
 7. Stamps `build/.kernel-version`, copies `xipImage-<major.minor>` to prebuilts
 
@@ -126,7 +126,7 @@ checked by diffing (see fragment header + E-series docs).
 - `LD_DEAD_CODE_DATA_ELIMINATION` (DCE): tinyconfig enables it, and it hangs
   xtensa XIP right after `sched_clock` (experiment E2). Fragment disables it.
 - `merge_config.sh` ignores `# CONFIG_X is not set` lines with trailing
-  comments — keep them byte-exact. `build-kernel.sh` asserts the result.
+  comments - keep them byte-exact. `build-kernel.sh` asserts the result.
 
 ### Output files:
 ```
@@ -144,7 +144,7 @@ tools/prebuilt/binaries/
 
 Builds busybox (always latest stable, resolved via git tags in
 `latest-busybox.sh`, source via shallow clone) and assembles the EROFS
-rootfs from `mculinux/rootfs/` — no Buildroot.
+rootfs from `mculinux/rootfs/` - no Buildroot.
 
 ### What it does:
 
@@ -152,10 +152,10 @@ rootfs from `mculinux/rootfs/` — no Buildroot.
 2. Acquires source: builder pre-extract > prefetched tarball > git clone >
    tarball download. Fail loud if nothing works.
 3. Applies our defconfig + `oldconfig`, applies the NOMMU `hush.c` patch
-   (fail loud if upstream moved the anchor — red CI, not silent MMU hush)
+   (fail loud if upstream moved the anchor - red CI, not silent MMU hush)
 4. Builds + strips `busybox` (~2MB)
 5. `build-rootfs.sh` assembles staging: skeleton dirs, single-source
-   `/etc` (`rootfs/etc/`), ~130 applet symlinks (explicit list — the cross
+   `/etc` (`rootfs/etc/`), ~130 applet symlinks (explicit list - the cross
    binary can't run on the host for `--list` probing), static `init`
    (compiled from `patches/busybox-nommu/init_final.c`), `/dev/console+null`
    via fakeroot when available (devtmpfs covers boot regardless)
@@ -180,7 +180,7 @@ Builds the writable `/etc` filesystem from the same `rootfs/etc/` source.
 
 ### What it does:
 
-1. `mkfs.jffs2 --eraseblock=0x10000` — the eraseblock MUST match what the
+1. `mkfs.jffs2 --eraseblock=0x10000` - the eraseblock MUST match what the
    MTD layer advertises (`erase-size = <0x10000>` in `esp32s3.dtsi`); a
    mismatch produces an unmountable image
 2. Fails loud if the image exceeds the etc partition (0xB0000, 448KB)
@@ -210,24 +210,24 @@ format; TX buffers are dcache-flushed, RX pointers are validated
   kernel SLAAC for IPv6.
 - Control path speaks the firmware's **native command protocol**
   (`COMMAND_REQUEST` init/scan/connect; `COMMAND_RESPONSE` + `EVENT`s
-  back on slot 1 — the same handlers the NG host uses):
-  - `wificfg mac` — firmware STA MAC, no radio or INIT needed. This is
+  back on slot 1 - the same handlers the NG host uses):
+  - `wificfg mac` - firmware STA MAC, no radio or INIT needed. This is
     the QEMU hardware-independence check: it proves the full
     host→firmware→host round trip.
-  - `wificfg scan` — broadcast scan via firmware; results arrive as
+  - `wificfg scan` - broadcast scan via firmware; results arrive as
     `EVENT_SCAN_RESULT`s (SSID parsed from beacon IEs, auth from
     RSN/WPA IEs + privacy bit), done-marker or 8s timeout ends it.
-  - `wificfg <ssid> [pass]` — stages creds (SSID logged, passphrase
+  - `wificfg <ssid> [pass]` - stages creds (SSID logged, passphrase
     never) then sends `CMD_STA_CONNECT` (channel auto, BSSID any).
     Open networks join with stock firmware; secured join needs the
     mculinux passphrase extension (`passphrase[65]` appended to
-    `cmd_sta_connect` — legacy firmware ignores the tail bytes and
+    `cmd_sta_connect` - legacy firmware ignores the tail bytes and
     falls back to its own configured passphrase).
   - Driver serializes control ioctls (one transaction at a time),
     matches responses by cmd_code, unlinks timed-out frames under lock
-    (no leak, no hang: every wait is bounded 5–8s).
+    (no leak, no hang: every wait is bounded 5-8s).
 - Firmware build: `scripts/build-bootloader.sh` (era-pinned IDF v6.0
-  Docker + checkout's esp-idf submodule — never mix with the image's
+  Docker + checkout's esp-idf submodule - never mix with the image's
   `/opt/esp/idf`), applies `patches/esp-hosted/`, overlay
   `sdkconfig.mculinux` (INFO logs for bringup). Output
   `network_adapter.bin` ships in `tools/prebuilt/binaries/`.
@@ -312,7 +312,7 @@ Boots the flash image in QEMU ESP32-S3 emulator and verifies a working system.
 ```
 tools/qemu/qemu/bin/qemu-system-xtensa   (ESP-IDF QEMU esp-develop-9.2.2-20260417;
   NOTE: the 20250228 tag's asset was re-rolled upstream and breaks octal
-  PSRAM init — always use 20260417 or newer verified bits)
+  PSRAM init - always use 20260417 or newer verified bits)
 ```
 `$QEMU` env wins; both CI images pre-set it (`/opt/qemu/...`).
 
@@ -391,7 +391,7 @@ data,             0x40, 0x2,    0x00740000,   0x000C0000 / 0x008C0000 (768KB / 8
 - **etc**: JFFS2 allows writing config files, logs
 - **linux**: XIP kernel runs directly from flash, no loading needed
 - **rootfs**: erofs is read-only, compressed, ideal for root filesystem
-- **data**: JFFS2 on the leftover flash — app storage, logs, user files
+- **data**: JFFS2 on the leftover flash - app storage, logs, user files
 
 ### Kernel DTB hardcodes this layout
 The kernel device tree blob (DTB) is compiled with these partition offsets baked in. The kernel always sees this layout regardless of what the actual flash contains.
@@ -422,12 +422,12 @@ The kernel device tree blob (DTB) is compiled with these partition offsets baked
 
 Two pre-baked images on GHCR, built by `.github/workflows/docker.yml`
 on `mculinux/docker/**` changes + weekly Sunday refresh (re-resolves
-latest Ubuntu/kernel/busybox) — both packages are **Public**:
+latest Ubuntu/kernel/busybox) - both packages are **Public**:
 
 `.github/workflows/build.yml` has two paths:
 
 - **fast** (push/PR): tester image, device matrix r8n8/r8n16/r16n16 in
-  parallel — `./scripts/build-image.sh <device>` + `./scripts/test-qemu.sh`.
+  parallel - `./scripts/build-image.sh <device>` + `./scripts/test-qemu.sh`.
   Uses committed prebuilts, so the `full` job's commit-back is what keeps
   them fresh.
 - **full** (nightly cron 02:00 UTC + manual dispatch): builder image.
