@@ -21,8 +21,10 @@ RUN apt-get update && apt-get -y install --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Espressif QEMU (esp32s3 machine). test-qemu.sh uses $QEMU first.
+# GitHub release-asset downloads get dropped mid-stream occasionally
+# (wget exit 4) - retry with resume and show errors on failure.
 RUN mkdir -p /tmp/qextract /opt/qemu && \
-    wget -q "$QEMU_TARBALL_URL" -O /tmp/qemu.tar.xz && \
+    wget -nv --tries=5 --timeout=120 --continue "$QEMU_TARBALL_URL" -O /tmp/qemu.tar.xz && \
     tar -xf /tmp/qemu.tar.xz -C /tmp/qextract && \
     (test -d /tmp/qextract/qemu && cp -r /tmp/qextract/qemu/* /opt/qemu/ || \
      cp -r /tmp/qextract/* /opt/qemu/) && \

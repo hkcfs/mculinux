@@ -3,10 +3,7 @@ Subject: [PATCH] misc: add ESP32 IPC driver
 
 --- a/drivers/misc/Kconfig
 +++ b/drivers/misc/Kconfig
-@@ -651,4 +651,11 @@
- source "drivers/misc/keba/Kconfig"
- source "drivers/misc/amd-sbi/Kconfig"
- source "drivers/misc/rp1/Kconfig"
+@@ -589,1 +589,8 @@
 +
 +config ESP32_IPC
 +	tristate "ESP32 IPC driver"
@@ -17,9 +14,7 @@ Subject: [PATCH] misc: add ESP32 IPC driver
  endmenu
 --- a/drivers/misc/Makefile
 +++ b/drivers/misc/Makefile
-@@ -74,3 +74,4 @@
- obj-y				+= keba/
- obj-y				+= amd-sbi/
+@@ -72,1 +72,2 @@
  obj-$(CONFIG_MISC_RP1)		+= rp1/
 +obj-$(CONFIG_ESP32_IPC) += esp32-ipc.o
 --- /dev/null

@@ -36,7 +36,7 @@ RUN apt-get update && apt-get -y install --no-install-recommends \
     && ln -sf /usr/lib/x86_64-linux-gnu/fakeroot/libfakeroot-sysv.so /usr/lib/x86_64-linux-gnu/libfakeroot.so
 
 # Autoconf 2.71 (kernel/busybox configure scripts need it; distro ships older).
-RUN wget -q https://ftp.gnu.org/gnu/autoconf/autoconf-2.71.tar.xz && \
+RUN wget -nv --tries=5 --timeout=120 --continue https://ftp.gnu.org/gnu/autoconf/autoconf-2.71.tar.xz && \
     tar -xf autoconf-2.71.tar.xz && \
     cd autoconf-2.71 && \
     ./configure --prefix=/opt/autoconf-2.71 && \
@@ -47,7 +47,7 @@ ENV PATH="/opt/autoconf-2.71/bin:${PATH}"
 # Prebuilt musl cross-toolchain (~45 min to build; never again in CI).
 # Release asset is public (world-readable tarball), so no auth needed here.
 RUN mkdir -p /opt && \
-    wget -q "$TOOLCHAIN_URL" -O /tmp/toolchain.tar.xz && \
+    wget -nv --tries=5 --timeout=300 --continue "$TOOLCHAIN_URL" -O /tmp/toolchain.tar.xz && \
     tar -xf /tmp/toolchain.tar.xz -C /opt/ && \
     rm -f /tmp/toolchain.tar.xz && \
     test -x "$TOOLCHAIN_DIR/bin/xtensa-esp32s3-linux-muslfdpic-gcc"
@@ -95,7 +95,7 @@ RUN BBTAGS="$(git ls-remote --tags git://git.busybox.net/busybox 2>/dev/null; \
 
 # Espressif QEMU (esp32s3 machine). test-qemu.sh uses $QEMU first.
 RUN mkdir -p /tmp/qextract /opt/qemu && \
-    wget -q "$QEMU_TARBALL_URL" -O /tmp/qemu.tar.xz && \
+    wget -nv --tries=5 --timeout=120 --continue "$QEMU_TARBALL_URL" -O /tmp/qemu.tar.xz && \
     tar -xf /tmp/qemu.tar.xz -C /tmp/qextract && \
     (test -d /tmp/qextract/qemu && cp -r /tmp/qextract/qemu/* /opt/qemu/ || \
      cp -r /tmp/qextract/* /opt/qemu/) && \

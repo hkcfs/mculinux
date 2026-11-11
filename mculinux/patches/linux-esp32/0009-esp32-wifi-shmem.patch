@@ -11,9 +11,7 @@ Subject: [PATCH 9/9] net: add ESP32-S3 WiFi over shared memory (lean Ethernet)
 
 --- a/drivers/net/ethernet/Kconfig
 +++ b/drivers/net/ethernet/Kconfig
-@@ -190,4 +190,16 @@
- source "drivers/net/ethernet/xilinx/Kconfig"
- source "drivers/net/ethernet/xircom/Kconfig"
+@@ -193,2 +193,14 @@
  
 +config ESP32_WIFI_SHMEM
 +	tristate "Espressif ESP32-S3 WiFi over shared memory"
@@ -30,9 +28,7 @@ Subject: [PATCH 9/9] net: add ESP32-S3 WiFi over shared memory (lean Ethernet)
  endif # ETHERNET
 --- a/drivers/net/ethernet/Makefile
 +++ b/drivers/net/ethernet/Makefile
-@@ -105,3 +105,4 @@
- obj-$(CONFIG_NET_VENDOR_SYNOPSYS) += synopsys/
- obj-$(CONFIG_NET_VENDOR_PENSANDO) += pensando/
+@@ -107,1 +107,2 @@
  obj-$(CONFIG_OA_TC6) += oa_tc6.o
 +obj-$(CONFIG_ESP32_WIFI_SHMEM) += esp32-wifi-shmem.o
 --- /dev/null
