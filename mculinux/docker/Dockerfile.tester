@@ -11,10 +11,43 @@ FROM ubuntu:${UBUNTU_TAG}
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# ubuntu.com vhosts resolve intermittently from the GitHub-hosted runner
-# fleet (transient "Could not resolve" errors that sink whole builds).
-# Retry each fetch before giving up.
-RUN printf 'Acquire::Retries "10";\n' > /etc/apt/apt.conf.d/80-retries
+# ubuntu.com vhosts can become unresolvable from the GitHub-hosted
+# runner fleet ("Could not resolve 'archive.ubuntu.com'") for hours at a
+# time. HTTP works even where HTTPS does not (no CA-bundle trust for the
+# mirrors), so all probes use plain HTTP; every mirror carries the same
+# signed archive, verified against the Ubuntu keyring in the image.
+# Probe known-good mirrors in order and use the first whose indexes
+# actually download (apt-get update exits 0 even on total failure, so
+# freshness of the lists is what is checked). The default (archive
+# + security) stays first so a healthy runner uses the canonical source.
+RUN set -e; \
+    cp /etc/apt/sources.list.d/ubuntu.sources /tmp/ubuntu.sources.orig; \
+    MIRROR=""; \
+    for M in \
+        "http://archive.ubuntu.com/ubuntu" \
+        "http://mirrors.edge.kernel.org/ubuntu" \
+        "http://mirror.rackspace.com/ubuntu" \
+        "http://mirrors.ocf.berkeley.edu/ubuntu" \
+        "http://mirror.leaseweb.com/ubuntu" \
+        "http://mirrors.aliyun.com/ubuntu" \
+        "http://mirrors.tuna.tsinghua.edu.cn/ubuntu" \
+        "http://mirrors.huaweicloud.com/ubuntu" \
+        "http://ftp.nluug.nl/os/Linux/distr/ubuntu" \
+        "http://ftp.osuosl.org/pub/ubuntu"; do \
+      cp /tmp/ubuntu.sources.orig /etc/apt/sources.list.d/ubuntu.sources; \
+      sed -i -e "s|http://archive.ubuntu.com/ubuntu|$M|g" \
+              -e "s|http://security.ubuntu.com/ubuntu|$M|g" \
+         /etc/apt/sources.list.d/ubuntu.sources; \
+      rm -rf /var/lib/apt/lists; \
+      apt-get update >/tmp/apt.log 2>&1 || true; \
+      if ls /var/lib/apt/lists/*_InRelease >/dev/null 2>&1; then \
+        MIRROR="$M"; break; \
+      fi; \
+      echo "mirror failed: $M"; \
+    done; \
+    [ -n "$MIRROR" ] || { echo "FAIL: no reachable Ubuntu mirror"; tail -50 /tmp/apt.log; exit 1; }; \
+    echo "Using Ubuntu mirror: $MIRROR"; \
+    rm -f /tmp/ubuntu.sources.orig /tmp/apt.log
 
 ARG QEMU_TARBALL_URL=https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20260417/qemu-xtensa-softmmu-esp_develop_9.2.2_20260417-x86_64-linux-gnu.tar.xz
 
