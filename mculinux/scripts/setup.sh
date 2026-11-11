@@ -80,7 +80,7 @@ CTEOF
         echo "Downloading prebuilt toolchain..."
         rm -rf /tmp/mctoolchain
         mkdir -p /tmp/mctoolchain crosstool-NG/builds
-        wget -q "$TOOLCHAIN_URL" -O /tmp/mctoolchain/toolchain.tar.xz \
+        wget -nv --tries=5 --timeout=300 --continue "$TOOLCHAIN_URL" -O /tmp/mctoolchain/toolchain.tar.xz \
             || { echo "FAIL: toolchain download failed"; exit 1; }
         tar -xf /tmp/mctoolchain/toolchain.tar.xz -C /tmp/mctoolchain
         # Find the toolchain root (dir containing bin/<triplet>-gcc), whatever

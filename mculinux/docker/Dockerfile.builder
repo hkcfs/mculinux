@@ -17,6 +17,44 @@ SHELL ["/bin/bash", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# ubuntu.com vhosts can become unresolvable from the GitHub-hosted
+# runner fleet ("Could not resolve 'archive.ubuntu.com'") for hours at a
+# time. HTTP works even where HTTPS does not (no CA-bundle trust for the
+# mirrors), so all probes use plain HTTP; every mirror carries the same
+# signed archive, verified against the Ubuntu keyring in the image.
+# Probe known-good mirrors in order and use the first whose indexes
+# actually download (apt-get update exits 0 even on total failure, so
+# freshness of the lists is what is checked). The default (archive
+# + security) stays first so a healthy runner uses the canonical source.
+RUN set -e; \
+    cp /etc/apt/sources.list.d/ubuntu.sources /tmp/ubuntu.sources.orig; \
+    MIRROR=""; \
+    for M in \
+        "http://archive.ubuntu.com/ubuntu" \
+        "http://mirrors.edge.kernel.org/ubuntu" \
+        "http://mirror.rackspace.com/ubuntu" \
+        "http://mirrors.ocf.berkeley.edu/ubuntu" \
+        "http://mirror.leaseweb.com/ubuntu" \
+        "http://mirrors.aliyun.com/ubuntu" \
+        "http://mirrors.tuna.tsinghua.edu.cn/ubuntu" \
+        "http://mirrors.huaweicloud.com/ubuntu" \
+        "http://ftp.nluug.nl/os/Linux/distr/ubuntu" \
+        "http://ftp.osuosl.org/pub/ubuntu"; do \
+      cp /tmp/ubuntu.sources.orig /etc/apt/sources.list.d/ubuntu.sources; \
+      sed -i -e "s|http://archive.ubuntu.com/ubuntu|$M|g" \
+              -e "s|http://security.ubuntu.com/ubuntu|$M|g" \
+         /etc/apt/sources.list.d/ubuntu.sources; \
+      rm -rf /var/lib/apt/lists; \
+      apt-get update >/tmp/apt.log 2>&1 || true; \
+      if ls /var/lib/apt/lists/*_InRelease >/dev/null 2>&1; then \
+        MIRROR="$M"; break; \
+      fi; \
+      echo "mirror failed: $M"; \
+    done; \
+    [ -n "$MIRROR" ] || { echo "FAIL: no reachable Ubuntu mirror"; tail -50 /tmp/apt.log; exit 1; }; \
+    echo "Using Ubuntu mirror: $MIRROR"; \
+    rm -f /tmp/ubuntu.sources.orig /tmp/apt.log
+
 # Bumpable source versions (kernel is always latest-stable, resolved below;
 # busybox is always latest-stable, resolved via git tags below).
 ARG TOOLCHAIN_URL=https://github.com/hkcfs/mculinux/releases/download/toolchain/xtensa-esp32s3-linux-muslfdpic.tar.xz
@@ -36,7 +74,7 @@ RUN apt-get update && apt-get -y install --no-install-recommends \
     && ln -sf /usr/lib/x86_64-linux-gnu/fakeroot/libfakeroot-sysv.so /usr/lib/x86_64-linux-gnu/libfakeroot.so
 
 # Autoconf 2.71 (kernel/busybox configure scripts need it; distro ships older).
-RUN wget -q https://ftp.gnu.org/gnu/autoconf/autoconf-2.71.tar.xz && \
+RUN wget -nv --tries=5 --timeout=120 --continue https://ftp.gnu.org/gnu/autoconf/autoconf-2.71.tar.xz && \
     tar -xf autoconf-2.71.tar.xz && \
     cd autoconf-2.71 && \
     ./configure --prefix=/opt/autoconf-2.71 && \
@@ -47,7 +85,7 @@ ENV PATH="/opt/autoconf-2.71/bin:${PATH}"
 # Prebuilt musl cross-toolchain (~45 min to build; never again in CI).
 # Release asset is public (world-readable tarball), so no auth needed here.
 RUN mkdir -p /opt && \
-    wget -q "$TOOLCHAIN_URL" -O /tmp/toolchain.tar.xz && \
+    wget -nv --tries=5 --timeout=300 --continue "$TOOLCHAIN_URL" -O /tmp/toolchain.tar.xz && \
     tar -xf /tmp/toolchain.tar.xz -C /opt/ && \
     rm -f /tmp/toolchain.tar.xz && \
     test -x "$TOOLCHAIN_DIR/bin/xtensa-esp32s3-linux-muslfdpic-gcc"
@@ -95,7 +133,7 @@ RUN BBTAGS="$(git ls-remote --tags git://git.busybox.net/busybox 2>/dev/null; \
 
 # Espressif QEMU (esp32s3 machine). test-qemu.sh uses $QEMU first.
 RUN mkdir -p /tmp/qextract /opt/qemu && \
-    wget -q "$QEMU_TARBALL_URL" -O /tmp/qemu.tar.xz && \
+    wget -nv --tries=5 --timeout=120 --continue "$QEMU_TARBALL_URL" -O /tmp/qemu.tar.xz && \
     tar -xf /tmp/qemu.tar.xz -C /tmp/qextract && \
     (test -d /tmp/qextract/qemu && cp -r /tmp/qextract/qemu/* /opt/qemu/ || \
      cp -r /tmp/qextract/* /opt/qemu/) && \

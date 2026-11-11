@@ -42,7 +42,7 @@ fetch_busybox() {
         rm -rf "$dest"
     done
     echo "Downloading tarball as last resort..."
-    if wget -q "https://busybox.net/downloads/busybox-${ver}.tar.bz2" \
+    if wget -nv --tries=5 --timeout=120 --continue "https://busybox.net/downloads/busybox-${ver}.tar.bz2" \
         -O "/tmp/busybox-${ver}.tar.bz2"; then
         rm -rf "$dest"
         tar -xjf "/tmp/busybox-${ver}.tar.bz2" -C /tmp
