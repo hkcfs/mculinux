@@ -17,13 +17,10 @@ SHELL ["/bin/bash", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# ubuntu.com vhosts (archive/security) are currently unresolvable from the
-# GitHub-hosted runner fleet (AAAA-only answers; "Could not resolve").
-# The Azure mirror carries the same pockets over IPv4 inside the same
-# cloud the runners run in.
-RUN sed -i -e 's|http://archive.ubuntu.com/ubuntu/|http://azure.archive.ubuntu.com/ubuntu/|g' \
-           -e 's|http://security.ubuntu.com/ubuntu/|http://azure.archive.ubuntu.com/ubuntu/|g' \
-    /etc/apt/sources.list.d/ubuntu.sources
+# ubuntu.com vhosts resolve intermittently from the GitHub-hosted runner
+# fleet (transient "Could not resolve" errors that sink whole builds).
+# Retry each fetch before giving up.
+RUN printf 'Acquire::Retries "10";\n' > /etc/apt/apt.conf.d/80-retries
 
 # Bumpable source versions (kernel is always latest-stable, resolved below;
 # busybox is always latest-stable, resolved via git tags below).
