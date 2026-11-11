@@ -11,6 +11,14 @@ FROM ubuntu:${UBUNTU_TAG}
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# ubuntu.com vhosts (archive/security) are currently unresolvable from the
+# GitHub-hosted runner fleet (AAAA-only answers; "Could not resolve").
+# The Azure mirror carries the same pockets over IPv4 inside the same
+# cloud the runners run in.
+RUN sed -i -e 's|http://archive.ubuntu.com/ubuntu/|http://azure.archive.ubuntu.com/ubuntu/|g' \
+           -e 's|http://security.ubuntu.com/ubuntu/|http://azure.archive.ubuntu.com/ubuntu/|g' \
+    /etc/apt/sources.list.d/ubuntu.sources
+
 ARG QEMU_TARBALL_URL=https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20260417/qemu-xtensa-softmmu-esp_develop_9.2.2_20260417-x86_64-linux-gnu.tar.xz
 
 # QEMU runtime libs + basic tools for assemble/test scripts
@@ -21,8 +29,10 @@ RUN apt-get update && apt-get -y install --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Espressif QEMU (esp32s3 machine). test-qemu.sh uses $QEMU first.
+# GitHub release-asset downloads get dropped mid-stream occasionally
+# (wget exit 4) - retry with resume and show errors on failure.
 RUN mkdir -p /tmp/qextract /opt/qemu && \
-    wget -q "$QEMU_TARBALL_URL" -O /tmp/qemu.tar.xz && \
+    wget -nv --tries=5 --timeout=120 --continue "$QEMU_TARBALL_URL" -O /tmp/qemu.tar.xz && \
     tar -xf /tmp/qemu.tar.xz -C /tmp/qextract && \
     (test -d /tmp/qextract/qemu && cp -r /tmp/qextract/qemu/* /opt/qemu/ || \
      cp -r /tmp/qextract/* /opt/qemu/) && \

@@ -28,7 +28,7 @@ fi
 echo "=== Installing Espressif QEMU (esp32s3) ===" >&2
 mkdir -p "$DEST_DIR"
 TMP_TARBALL="$(mktemp /tmp/espressif-qemu-XXXXXX.tar.xz)"
-if ! wget -q "$TARBALL_URL" -O "$TMP_TARBALL"; then
+if ! wget -nv --tries=5 --timeout=300 --continue "$TARBALL_URL" -O "$TMP_TARBALL"; then
     echo "FAIL: could not download $TARBALL_URL" >&2
     exit 1
 fi

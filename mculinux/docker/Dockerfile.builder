@@ -17,6 +17,14 @@ SHELL ["/bin/bash", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# ubuntu.com vhosts (archive/security) are currently unresolvable from the
+# GitHub-hosted runner fleet (AAAA-only answers; "Could not resolve").
+# The Azure mirror carries the same pockets over IPv4 inside the same
+# cloud the runners run in.
+RUN sed -i -e 's|http://archive.ubuntu.com/ubuntu/|http://azure.archive.ubuntu.com/ubuntu/|g' \
+           -e 's|http://security.ubuntu.com/ubuntu/|http://azure.archive.ubuntu.com/ubuntu/|g' \
+    /etc/apt/sources.list.d/ubuntu.sources
+
 # Bumpable source versions (kernel is always latest-stable, resolved below;
 # busybox is always latest-stable, resolved via git tags below).
 ARG TOOLCHAIN_URL=https://github.com/hkcfs/mculinux/releases/download/toolchain/xtensa-esp32s3-linux-muslfdpic.tar.xz
@@ -36,7 +44,7 @@ RUN apt-get update && apt-get -y install --no-install-recommends \
     && ln -sf /usr/lib/x86_64-linux-gnu/fakeroot/libfakeroot-sysv.so /usr/lib/x86_64-linux-gnu/libfakeroot.so
 
 # Autoconf 2.71 (kernel/busybox configure scripts need it; distro ships older).
-RUN wget -q https://ftp.gnu.org/gnu/autoconf/autoconf-2.71.tar.xz && \
+RUN wget -nv --tries=5 --timeout=120 --continue https://ftp.gnu.org/gnu/autoconf/autoconf-2.71.tar.xz && \
     tar -xf autoconf-2.71.tar.xz && \
     cd autoconf-2.71 && \
     ./configure --prefix=/opt/autoconf-2.71 && \
@@ -47,7 +55,7 @@ ENV PATH="/opt/autoconf-2.71/bin:${PATH}"
 # Prebuilt musl cross-toolchain (~45 min to build; never again in CI).
 # Release asset is public (world-readable tarball), so no auth needed here.
 RUN mkdir -p /opt && \
-    wget -q "$TOOLCHAIN_URL" -O /tmp/toolchain.tar.xz && \
+    wget -nv --tries=5 --timeout=300 --continue "$TOOLCHAIN_URL" -O /tmp/toolchain.tar.xz && \
     tar -xf /tmp/toolchain.tar.xz -C /opt/ && \
     rm -f /tmp/toolchain.tar.xz && \
     test -x "$TOOLCHAIN_DIR/bin/xtensa-esp32s3-linux-muslfdpic-gcc"
@@ -94,8 +102,10 @@ RUN BBTAGS="$(git ls-remote --tags git://git.busybox.net/busybox 2>/dev/null; \
     fi
 
 # Espressif QEMU (esp32s3 machine). test-qemu.sh uses $QEMU first.
+# Retries + resume: GitHub release-asset downloads get dropped mid-stream
+# occasionally (wget exit 4).
 RUN mkdir -p /tmp/qextract /opt/qemu && \
-    wget -q "$QEMU_TARBALL_URL" -O /tmp/qemu.tar.xz && \
+    wget -nv --tries=5 --timeout=120 --continue "$QEMU_TARBALL_URL" -O /tmp/qemu.tar.xz && \
     tar -xf /tmp/qemu.tar.xz -C /tmp/qextract && \
     (test -d /tmp/qextract/qemu && cp -r /tmp/qextract/qemu/* /opt/qemu/ || \
      cp -r /tmp/qextract/* /opt/qemu/) && \
